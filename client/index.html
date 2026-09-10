@@ -1,0 +1,40 @@
+<!DOCTYPE html>
+<html lang="en">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Munchr.io</title>
+    <link rel="stylesheet" href="style.css">
+</head>
+
+<body>
+    <canvas id="game"></canvas>
+
+    <div id="hud">
+        <div id="scorePanel"><span class="label">SIZE</span><span class="value" id="scoreVal">10</span></div>
+        <div id="walletPanel"><span class="coinIcon">●</span><span class="value" id="walletVal">0</span></div>
+    </div>
+
+    <div id="leaderboard">
+        <h3>ARENA</h3>
+        <ol id="lbList"></ol>
+    </div>
+
+    <div id="overlay">
+        <div class="card">
+            <h1>Munchr.io</h1>
+            <p class="sub">Eat orbs. Grab powers. Avoid bigger blobs.</p>
+            <input id="nameInput" type="text" placeholder="Your name" maxlength="12">
+            <div id="walletRow">Coins: <span id="walletStart">0</span></div>
+            <div id="skinRow"></div>
+            <button id="playBtn">Play</button>
+            <p class="deathline" id="deathline"></p>
+        </div>
+    </div>
+
+    <script src="/socket.io/socket.io.js"></script>
+    <script src="game.js"></script>
+</body>
+
+</html>

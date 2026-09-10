@@ -1,0 +1,15 @@
+{
+    "name": "munchr-io-server",
+    "version": "1.0.0",
+    "description": "Munchr.io multiplayer game server",
+    "main": "index.js",
+    "type": "module",
+    "scripts": {
+        "start": "node index.js",
+        "dev": "node index.js"
+    },
+    "dependencies": {
+        "express": "^4.19.2",
+        "socket.io": "^4.7.5"
+    }
+}
