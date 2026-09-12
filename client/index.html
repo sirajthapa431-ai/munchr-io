@@ -17,19 +17,59 @@
     </div>
 
     <div id="leaderboard">
-        <h3>ARENA</h3>
+        <h3>Top players <span id="lbCount"></span></h3>
         <ol id="lbList"></ol>
     </div>
 
     <div id="overlay">
-        <div class="card">
-            <h1>Munchr.io</h1>
+        <div class="topBar">
+            <div class="avatarBadge">
+                <div class="avatarFace">🐛</div>
+                <div class="levelPip">1</div>
+                <div class="xpTrack">
+                    <div class="xpFill"></div>
+                </div>
+            </div>
+            <div class="playerNameTag" id="topNameTag">Player</div>
+            <div class="gemsPill">
+                <span class="gemIcon">●</span>
+                <span id="walletStart">0</span>
+                <button type="button" class="addBtn" id="addCoinsBtn">+</button>
+            </div>
+        </div>
+
+        <div class="menuCenter">
+            <h1 class="logoText">Munchr<span class="dotIo">.io</span></h1>
             <p class="sub">Eat orbs. Grab powers. Avoid bigger blobs.</p>
+
             <input id="nameInput" type="text" placeholder="Your name" maxlength="12">
-            <div id="walletRow">Coins: <span id="walletStart">0</span></div>
-            <div id="skinRow"></div>
-            <button id="playBtn">Play</button>
+
+            <div id="skinPanel" class="panelCard">
+                <div class="panelTitle">Choose your worm</div>
+                <div id="skinRow"></div>
+            </div>
+
+            <button id="playBtn" class="battleBtn">
+                <span class="battleShine"></span>
+                TO BATTLE!
+            </button>
+
             <p class="deathline" id="deathline"></p>
+        </div>
+
+        <div class="bottomBar">
+            <button type="button" class="iconBtn" id="rankIconBtn">
+                <span class="iconGlyph">🏆</span>
+                <span class="iconLabel">Rank</span>
+            </button>
+            <button type="button" class="iconBtn" id="wardrobeIconBtn">
+                <span class="iconGlyph">🎨</span>
+                <span class="iconLabel">Wardrobe</span>
+            </button>
+            <button type="button" class="iconBtn" id="perksIconBtn">
+                <span class="iconGlyph">⚡</span>
+                <span class="iconLabel">Perks</span>
+            </button>
         </div>
     </div>
 
