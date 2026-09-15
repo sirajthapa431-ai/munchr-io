@@ -911,14 +911,12 @@ function drawPet(o, isMe, key) {
     const pr = clamp(o.r * 0.24, 7, 15);
 
     ctx.beginPath();
-    ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 14;
     const grad = ctx.createRadialGradient(-pr * 0.35, -pr * 0.35, pr * 0.1, 0, 0, pr);
     grad.addColorStop(0, '#ffffff');
     grad.addColorStop(0.5, '#ffe27a');
     grad.addColorStop(1, '#e8a400');
     ctx.fillStyle = grad;
     ctx.arc(0, 0, pr, 0, Math.PI * 2); ctx.fill();
-    ctx.shadowBlur = 0;
 
     ctx.beginPath();
     ctx.strokeStyle = 'rgba(255,255,255,0.55)';
@@ -1118,12 +1116,9 @@ function drawWormFromSegments(o, isMe, key) {
             const twinkle = Math.sin(performance.now() / 180 + i * 1.7);
             if (twinkle > 0.6) {
                 const p = segs[i];
-                ctx.beginPath();
-                ctx.fillStyle = `rgba(255,255,255,${(twinkle - 0.6) * 2})`;
-                ctx.shadowColor = '#ffffff'; ctx.shadowBlur = 8;
+                ctx.beginPath(); ctx.fillStyle = `rgba(255,255,255,${(twinkle - 0.6) * 2})`;
                 ctx.arc(p.x + (Math.random() - 0.5) * 6, p.y + (Math.random() - 0.5) * 6, 1.5, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.shadowBlur = 0;
             }
         }
     }
@@ -1134,10 +1129,8 @@ function drawWormFromSegments(o, isMe, key) {
                 const glowColor = o.pattern === 'inferno' ? '255,140,40' : '110,230,255';
                 ctx.beginPath();
                 ctx.fillStyle = `rgba(${glowColor},${0.3 + Math.random() * 0.3})`;
-                ctx.shadowColor = `rgb(${glowColor})`; ctx.shadowBlur = 10;
                 ctx.arc(p.x + (Math.random() - 0.5) * 8, p.y + (Math.random() - 0.5) * 8, 2, 0, Math.PI * 2);
                 ctx.fill();
-                ctx.shadowBlur = 0;
             }
         }
     } if (o.dashing || o.rampage) {
@@ -1160,11 +1153,11 @@ function drawWormFromSegments(o, isMe, key) {
     if (o.dashing) { ctx.beginPath(); ctx.strokeStyle = 'rgba(255,255,255,0.9)'; ctx.lineWidth = 4; ctx.arc(0, 0, o.r + 10, 0, Math.PI * 2); ctx.stroke(); }
     if (o.invis) { ctx.beginPath(); ctx.strokeStyle = 'rgba(150,200,255,0.5)'; ctx.lineWidth = 2; ctx.setLineDash([3, 5]); ctx.arc(0, 0, o.r + 7, 0, Math.PI * 2); ctx.stroke(); ctx.setLineDash([]); }
     if (o.frozen) { ctx.beginPath(); ctx.fillStyle = 'rgba(150,220,255,0.35)'; ctx.arc(0, 0, o.r + 4, 0, Math.PI * 2); ctx.fill(); ctx.beginPath(); ctx.strokeStyle = 'rgba(200,240,255,0.9)'; ctx.lineWidth = 3; ctx.arc(0, 0, o.r + 4, 0, Math.PI * 2); ctx.stroke(); }
-    if (o.golden) { ctx.beginPath(); ctx.strokeStyle = 'rgba(255,215,0,0.9)'; ctx.lineWidth = 5; ctx.shadowColor = 'gold'; ctx.shadowBlur = 20; ctx.arc(0, 0, o.r + 14, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0; }
+    if (o.golden) { ctx.beginPath(); ctx.strokeStyle = 'rgba(255,215,0,0.9)'; ctx.lineWidth = 5; ctx.arc(0, 0, o.r + 14, 0, Math.PI * 2); ctx.stroke(); }
     if (o.star) {
         const hue = (performance.now() / 8) % 360;
-        ctx.beginPath(); ctx.strokeStyle = `hsl(${hue},90%,60%)`; ctx.lineWidth = 4; ctx.shadowColor = `hsl(${hue},90%,60%)`; ctx.shadowBlur = 16;
-        ctx.arc(0, 0, o.r + 12, 0, Math.PI * 2); ctx.stroke(); ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.strokeStyle = `hsl(${hue},90%,60%)`; ctx.lineWidth = 4;
+        ctx.arc(0, 0, o.r + 12, 0, Math.PI * 2); ctx.stroke();
     }
     drawPectoralFins(o, segs);
     const baseColor = o.golden ? '#ffd700' : o.color;
@@ -1172,14 +1165,13 @@ function drawWormFromSegments(o, isMe, key) {
     if (headImgReady) {
         const hs = o.r * 2.7;
         ctx.save();
-        if (o.golden) { ctx.shadowColor = '#ffd700'; ctx.shadowBlur = 16; }
         ctx.drawImage(wormImages.head.img, -hs / 2, -hs / 2, hs, hs);
         ctx.restore();
     } else {
         const grad = ctx.createRadialGradient(-o.r * 0.3, -o.r * 0.3, o.r * 0.1, 0, 0, o.r);
         grad.addColorStop(0, lighten(baseColor, 30)); grad.addColorStop(1, baseColor);
-        ctx.beginPath(); ctx.fillStyle = grad; ctx.shadowColor = baseColor; ctx.shadowBlur = isMe ? 12 : 8;
-        ctx.arc(0, 0, o.r, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.fillStyle = grad;
+        ctx.arc(0, 0, o.r, 0, Math.PI * 2); ctx.fill();
     }
     const s0 = segs[0];
     const rawDirAng = s0 ? Math.atan2(o.y - s0.y, o.x - s0.x) : 0;
@@ -1301,11 +1293,13 @@ function drawVirus(v) {
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = '#3ee06b'; ctx.shadowColor = '#3ee06b'; ctx.shadowBlur = 14;
-    ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#3ee06b';
+    ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.25)'; ctx.lineWidth = 2; ctx.stroke();
     ctx.restore();
 }
+
+// ---- NEW: Wormhole portal rendering
 
 // ---- NEW: Wormhole portal rendering (swirling animated ring) ----
 function drawPortal(p) {
@@ -1319,11 +1313,10 @@ function drawPortal(p) {
         ctx.strokeStyle = p.color;
         ctx.globalAlpha = 0.55 - ring * 0.12;
         ctx.lineWidth = 4;
-        ctx.shadowColor = p.color; ctx.shadowBlur = 18;
         ctx.arc(0, 0, rr, t * (ring % 2 === 0 ? 1 : -1), t * (ring % 2 === 0 ? 1 : -1) + Math.PI * 1.4);
         ctx.stroke();
     }
-    ctx.globalAlpha = 1; ctx.shadowBlur = 0;
+    ctx.globalAlpha = 1;
     ctx.restore();
 }
 
@@ -1340,8 +1333,8 @@ function drawBoss(b) {
         if (i === 0) ctx.moveTo(px, py); else ctx.lineTo(px, py);
     }
     ctx.closePath();
-    ctx.fillStyle = '#ff2d55'; ctx.shadowColor = '#ff2d55'; ctx.shadowBlur = 30;
-    ctx.fill(); ctx.shadowBlur = 0;
+    ctx.fillStyle = '#ff2d55';
+    ctx.fill();
     ctx.strokeStyle = 'rgba(255,255,255,0.35)'; ctx.lineWidth = 3; ctx.stroke();
     ctx.font = 'bold 16px Segoe UI, sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
     ctx.fillText('BOSS', 0, -b.r - 14);
@@ -1473,15 +1466,15 @@ function render() {
         const ro = latest.rampageOrb;
         const pulse = 0.75 + Math.sin(performance.now() / 140) * 0.25;
         ctx.save(); ctx.translate(ro.x, ro.y);
-        ctx.beginPath(); ctx.fillStyle = '#ff3b3b'; ctx.shadowColor = '#ff3b3b'; ctx.shadowBlur = 26 * pulse;
-        ctx.arc(0, 0, ro.r * pulse, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.fillStyle = '#ff3b3b';
+        ctx.arc(0, 0, ro.r * pulse, 0, Math.PI * 2); ctx.fill();
         ctx.font = 'bold 14px Segoe UI, sans-serif'; ctx.fillStyle = '#fff'; ctx.textAlign = 'center';
         ctx.fillText('★', 0, 5);
         ctx.restore();
     }
     for (const e of (latest.ejected || [])) {
-        ctx.beginPath(); ctx.fillStyle = e.color; ctx.shadowColor = e.color; ctx.shadowBlur = 8;
-        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+        ctx.beginPath(); ctx.fillStyle = e.color;
+        ctx.arc(e.x, e.y, e.r, 0, Math.PI * 2); ctx.fill();
     }
     frameActiveIds.clear();
     for (const id in latest.bots) {
