@@ -1231,9 +1231,8 @@ function drawCoin(c) {
     } else {
         const grad = ctx.createRadialGradient(-vr * 0.2, -vr * 0.3, vr * 0.1, 0, 0, vr);
         grad.addColorStop(0, '#fff3b0'); grad.addColorStop(0.6, '#ffd23f'); grad.addColorStop(1, '#c98f00');
-        ctx.beginPath(); ctx.fillStyle = grad; ctx.shadowColor = '#ffd23f'; ctx.shadowBlur = 10;
+        ctx.beginPath(); ctx.fillStyle = grad;
         ctx.ellipse(0, 0, vr * squash, vr, 0, 0, Math.PI * 2); ctx.fill();
-        ctx.shadowBlur = 0;
     }
     ctx.restore();
 }
@@ -1255,8 +1254,8 @@ function drawPowerup(pu) {
     const pulse = 0.7 + Math.sin(performance.now() / 180 + pu.x) * 0.3;
     const col = POWER_COLORS[pu.type] || '#ffd23f';
     ctx.save(); ctx.translate(pu.x, pu.y);
-    ctx.beginPath(); ctx.fillStyle = col; ctx.shadowColor = col; ctx.shadowBlur = 14 * pulse;
-    ctx.arc(0, 0, pu.r * 1.1, 0, Math.PI * 2); ctx.fill(); ctx.shadowBlur = 0;
+    ctx.beginPath(); ctx.fillStyle = col;
+    ctx.arc(0, 0, pu.r * 1.1, 0, Math.PI * 2); ctx.fill();
     const s = pu.r * 0.65;
     ctx.fillStyle = '#fff'; ctx.strokeStyle = '#fff'; ctx.lineWidth = 2.2; ctx.lineCap = 'round'; ctx.lineJoin = 'round';
     if (pu.type === 'speed') {
@@ -1437,18 +1436,9 @@ function render() {
             const bob = Math.sin(performance.now() / 260 + f.x) * (f.r * 0.1);
             const glowPulse = 0.8 + Math.sin(performance.now() / 240 + f.x) * 0.2;
             ctx.beginPath(); ctx.fillStyle = 'rgba(0,0,0,0.28)';
-            ctx.ellipse(0, f.r * 0.55, f.r * 0.55, f.r * 0.2, 0, 0, Math.PI * 2); ctx.fill();
-            ctx.beginPath(); ctx.fillStyle = f.color;
-            ctx.shadowColor = f.color; ctx.shadowBlur = 22 * glowPulse;
-            ctx.globalAlpha = 0.35;
-            ctx.arc(0, bob, f.r * 1.1 * glowPulse, 0, Math.PI * 2); ctx.fill();
-            ctx.globalAlpha = 1;
-            ctx.shadowBlur = 0;
-            ctx.font = `${Math.round(f.r * 2)}px "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
+            ctx.ellipse(0, f.r * 0.55, f.r * 0.55, f.r * 0.2, 0, 0, Math.PI * 2); ctx.fill(); ctx.font = `${Math.round(f.r * 2)}px "Segoe UI Emoji", "Noto Color Emoji", sans-serif`;
             ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-            ctx.shadowColor = f.color; ctx.shadowBlur = 12 * glowPulse;
             ctx.fillText(f.emoji, 0, bob);
-            ctx.shadowBlur = 0;
         } else {
             const fruitKey = pickFoodImageKey(f);
             let entry = foodImages[fruitKey];
@@ -1466,15 +1456,12 @@ function render() {
                 ctx.restore();
             } else {
                 const pulse = 0.9 + Math.sin(performance.now() / 300 + f.x) * 0.1;
-                ctx.shadowColor = f.color;
-                ctx.shadowBlur = (f.golden ? 14 : 5) * pulse;
                 const grad = ctx.createRadialGradient(-f.r * 0.32, -f.r * 0.32, f.r * 0.08, 0, 0, f.r);
                 grad.addColorStop(0, '#ffffff');
                 grad.addColorStop(0.45, f.color);
                 grad.addColorStop(1, lighten(f.color, -25));
                 ctx.beginPath(); ctx.fillStyle = grad;
                 ctx.arc(0, 0, f.r * pulse, 0, Math.PI * 2); ctx.fill();
-                ctx.shadowBlur = 0;
             }
         }
         ctx.restore();
