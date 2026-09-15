@@ -1065,7 +1065,7 @@ function drawWormFromSegments(o, isMe, key) {
     if (!o.invis) {
         ctx.save();
         ctx.globalAlpha = 0.28;
-        for (let i = segs.length - 1; i >= 0; i -= 2) {
+        for (let i = segs.length - 1; i >= 0; i -= 4) {
             const tLin = i / Math.max(1, segs.length - 1);
             let r = o.r;
             if (tLin > 0.985) {
@@ -1075,15 +1075,15 @@ function drawWormFromSegments(o, isMe, key) {
             ctx.beginPath(); ctx.fillStyle = '#000';
             ctx.ellipse(segs[i].x + r * 0.18, segs[i].y + r * 0.28, r * 0.95, r * 0.55, 0, 0, Math.PI * 2);
             ctx.fill();
-        }
-        ctx.beginPath(); ctx.fillStyle = '#000';
+        } ctx.beginPath(); ctx.fillStyle = '#000';
         ctx.ellipse(o.x + o.r * 0.18, o.y + o.r * 0.28, o.r * 0.95, o.r * 0.55, 0, 0, Math.PI * 2);
         ctx.fill();
         ctx.restore();
     }
 
     const bodyImgReady = o.pattern === 'customSkin' && wormImages.body && wormImages.body.loaded;
-    for (let i = segs.length - 1; i >= 0; i--) {
+    const segStep = segs.length > 150 ? 2 : 1;
+    for (let i = segs.length - 1; i >= 0; i -= segStep) {
         const tLin = i / Math.max(1, segs.length - 1);
         let r = o.r;
         if (tLin > 0.985) {
@@ -1109,10 +1109,6 @@ function drawWormFromSegments(o, isMe, key) {
             const segColor = o.golden ? lighten('#ffd700', shade) : cachedSegmentFill(o, i, segs.length, key);
             ctx.beginPath(); ctx.fillStyle = segColor;
             ctx.arc(segs[i].x, segs[i].y, r * 1.08, 0, Math.PI * 2); ctx.fill();
-
-            ctx.beginPath();
-            ctx.fillStyle = lighten(segColor, 22);
-            ctx.arc(segs[i].x - r * 0.28, segs[i].y - r * 0.32, r * 0.35, 0, Math.PI * 2); ctx.fill();
         }
     }
     drawSideFins(o, segs);
