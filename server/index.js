@@ -17,9 +17,10 @@ const COIN_COUNT = 200;
 const POWERUP_COUNT = 32;
 const PALETTE = ['#ff6fa5', '#ffd23f', '#4be3d0', '#b98bff', '#ff9d5c', '#6fe07a'];
 const PATTERNS = ['solid', 'stripe', 'dots', 'gradient', 'tiger', 'scale', 'rainbow', 'lava'];
-const BOT_NAMES = ['Pip', 'Nib', 'Zumo', 'Kiki', 'Bramble', 'Nova', 'Wiggle', 'Slinky', 'Boop', 'Fango', 'Twix', 'Marbles', 'Ziggy', 'Puffin', 'Coco', 'Ranger', 'Milo', 'Cosmo', 'Peanut', 'Dash'];
-const BOT_COUNT = 40;
-const BOOST_MULT = 1.6;
+const BOT_SECOND_COLORS = ['#ffffff', '#7a4b00', '#2d0a5e', '#3a1c00', '#0b3d17', '#ffd23f', '#111111'];
+const BOT_NAMES = ['siraj', 'ram', 'anjali', 'bijay', 'karan', 'parash', 'lama', 'anmol', 'sagar', 'bishal', 'subash', 'Marbles', 'Ziggy', 'Puffin', 'Coco', 'Ranger', 'Milo', 'Cosmo', 'Peanut', 'Dash'];
+const BOT_COUNT = 25;
+const BOOST_MULT = 1.35;
 const BOOST_MS = 4000;
 const DASH_COOLDOWN_MS = 8000;
 const DASH_DURATION_MS = 250;
@@ -35,21 +36,19 @@ const SHIELD_MS = 4500;
 const MAGNET_MS = 5000;
 const MAGNET_RADIUS = 260;
 const POWER_TYPES = ['speed', 'shield', 'magnet', 'star'];
-const VIRUS_COUNT = 24;
+const VIRUS_COUNT = 5;
 const VIRUS_R = 45;
 const RAMPAGE_DURATION_MS = 8000;
 const RAMPAGE_RESPAWN_MS = 40000;
 const RAMPAGE_SPEED_MULT = 2.1;
-const TURN_RATE_MAX = 6.4;   // rad/s for a tiny worm — very snappy
-const TURN_RATE_MIN = 1.7;   // rad/s for a huge worm — heavier, slower turning
+const TURN_RATE_MAX = 8.5;
+const TURN_RATE_MIN = 2.6;
 const FOOD_EMOJIS = ['🍄', '🥕', '🍞', '🍎', '🥦', '🍇', '🍊'];
 const EMOJI_FOOD_CHANCE = 0.16;
 const STAR_MS = 6000;
-const SEG_SPACING = 14;
 const START_LEN = 90;
 const BODY_HIT_PAD = 8;
-const MAX_R = 220; // hard cap — prevents runaway snowball growth and keeps segment arrays small
-
+const MAX_R = 900;
 const RAGE_STREAK = 3;
 const RAGE_MS = 5000;
 const RAGE_MULT = 2;
@@ -59,13 +58,31 @@ const GOLDEN_INTERVAL_MS = 45000;
 const GOLDEN_DURATION_MS = 20000;
 const GOLDEN_COIN_BONUS = 50;
 
+// ---- NEW: Wormhole Portals (theme feature) ----
+const PORTAL_PAIR_COUNT = 2; // 2 pairs = 4 portals total
+const PORTAL_R = 55;
+const PORTAL_COOLDOWN_MS = 1500; // prevents instant re-teleport ping-pong
+
+// ---- NEW: Boss Virus event (periodic big-risk-big-reward target) ----
+const BOSS_INTERVAL_MS = 90000;
+const BOSS_R = 130;
+const BOSS_MASS_REWARD = 4000;
+
+// ---- NEW: Biome zones (visual only — client tints background by zone) ----
+const BIOME_COUNT = 4; // grid of biome cells across the world, sent once at welcome
+
+const GRID_CELL = 220; // spatial grid cell size — keeps per-entity searches to nearby cells only
+
 const rand = (a, b) => a + Math.random() * (b - a);
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 const lerp = (a, b, t) => a + (b - a) * t;
 const dist2 = (a, b) => { const dx = a.x - b.x, dy = a.y - b.y; return dx * dx + dy * dy; };
-const radiusForMass = m => Math.sqrt(m) * 3.1;
-const massForRadius = r => (r / 3.1) * (r / 3.1);
-const baseSpeedFor = r => clamp(5000 / (r + 8), 90, 200);
+// motai (radius) chai mass ko 4th-root anusar badhcha — slow growth, worm lamो ra patalो rahancha
+const RADIUS_K = 2.5;
+const RADIUS_EXP = 0.21;
+const radiusForMass = m => RADIUS_K * Math.pow(Math.max(m, 0.0001), RADIUS_EXP);
+const massForRadius = r => Math.pow(Math.max(r, 0.0001) / RADIUS_K, 1 / RADIUS_EXP);
+const baseSpeedFor = r => clamp(7800 / (r + 8), 172, 260);
 function speedFor(entity) {
     let s = baseSpeedFor(entity.r);
     if (entity.perk === 'speedy') s *= 1.12;
@@ -77,14 +94,37 @@ function speedFor(entity) {
 const uid = () => Math.random().toString(36).slice(2, 10);
 const capR = r => Math.min(MAX_R, r);
 
+// ---- spatial grid helpers ----
+function buildGrid(items, cellSize) {
+    const grid = new Map();
+    for (const it of items) {
+        const key = Math.floor(it.x / cellSize) + ',' + Math.floor(it.y / cellSize);
+        let arr = grid.get(key);
+        if (!arr) { arr = []; grid.set(key, arr); }
+        arr.push(it);
+    }
+    return grid;
+}
+function nearbyItems(grid, x, y, cellSize, radiusCells) {
+    const gx = Math.floor(x / cellSize), gy = Math.floor(y / cellSize);
+    const result = [];
+    for (let dx = -radiusCells; dx <= radiusCells; dx++) {
+        for (let dy = -radiusCells; dy <= radiusCells; dy++) {
+            const arr = grid.get((gx + dx) + ',' + (gy + dy));
+            if (arr) for (const it of arr) result.push(it);
+        }
+    }
+    return result;
+}
+
 let food = [], coins = [], powerups = [], viruses = [];
 function spawnFood(n) {
     for (let i = 0; i < n; i++) {
-        const isEmoji = Math.random() < EMOJI_FOOD_CHANCE;
-        if (isEmoji) {
-            food.push({ x: rand(40, WORLD.w - 40), y: rand(40, WORLD.h - 40), r: rand(13, 17), color: PALETTE[Math.floor(Math.random() * PALETTE.length)], emoji: FOOD_EMOJIS[Math.floor(Math.random() * FOOD_EMOJIS.length)], bonus: 9 });
+        const isBonus = Math.random() < EMOJI_FOOD_CHANCE;
+        if (isBonus) {
+            food.push({ x: rand(40, WORLD.w - 40), y: rand(40, WORLD.h - 40), r: 20, color: PALETTE[Math.floor(Math.random() * PALETTE.length)], bonus: 350 });
         } else {
-            food.push({ x: rand(40, WORLD.w - 40), y: rand(40, WORLD.h - 40), r: rand(4, 7), color: PALETTE[Math.floor(Math.random() * PALETTE.length)] });
+            food.push({ x: rand(40, WORLD.w - 40), y: rand(40, WORLD.h - 40), r: 20, color: PALETTE[Math.floor(Math.random() * PALETTE.length)], bonus: 130 });
         }
     }
 }
@@ -109,8 +149,93 @@ function eatRampage(entity) {
     }
     return false;
 }
-spawnFood(FOOD_COUNT); spawnCoins(COIN_COUNT); spawnPowerups(POWERUP_COUNT); spawnViruses(VIRUS_COUNT);
 
+// ---- NEW: Portal pairs ----
+let portals = []; // each: { id, x, y, linkId (index of partner), pairColor }
+let lastSegCache = new Map(); // previous tick's body segments, used to check portal-landing safety
+function isPortalDestSafe(entity, dest) {
+    const buffer = 45;
+    for (const w of collectWorms()) {
+        if (w.ent === entity) continue;
+        const segs = lastSegCache.get(w.ent);
+        if (!segs) continue;
+        for (const s of segs) {
+            const hitR = entity.r + w.ent.r * 0.6 + buffer;
+            if (dist2(dest, s) < hitR * hitR) return false;
+        }
+    }
+    return true;
+}
+function spawnPortals() {
+    portals = [];
+    const pairColors = ['#7dd3ff', '#ff8bd0'];
+    for (let p = 0; p < PORTAL_PAIR_COUNT; p++) {
+        const a = { id: uid(), x: rand(300, WORLD.w - 300), y: rand(300, WORLD.h - 300), r: PORTAL_R, color: pairColors[p % pairColors.length] };
+        const b = { id: uid(), x: rand(300, WORLD.w - 300), y: rand(300, WORLD.h - 300), r: PORTAL_R, color: pairColors[p % pairColors.length] };
+        a.linkId = b.id; b.linkId = a.id;
+        portals.push(a, b);
+    }
+}
+spawnPortals();
+function tryPortal(entity, now) {
+    if ((entity.portalCooldownUntil || 0) > now) return;
+    for (const p of portals) {
+        const hitR = entity.r * 0.6 + p.r * 0.5;
+        if (dist2(entity, p) < hitR * hitR) {
+            const dest = portals.find(x => x.id === p.linkId);
+            if (!dest) return;
+            if (!isPortalDestSafe(entity, dest)) return; // enemy blocking exit — wait, retry next tick
+            entity.x = dest.x; entity.y = dest.y;
+            entity.portalCooldownUntil = now + PORTAL_COOLDOWN_MS;
+            // reset the path so the body doesn't stretch a visible line across the map
+            entity.path = [{ x: entity.x, y: entity.y }];
+            entity.shieldUntil = Math.max(entity.shieldUntil || 0, now + 700); // brief landing shield
+            return true;
+        }
+    }
+    return false;
+}
+
+// ---- NEW: Boss Virus ----
+let boss = null;
+let bossSpawnAt = Date.now() + BOSS_INTERVAL_MS;
+function trySpawnBoss(now) {
+    if (boss || now < bossSpawnAt) return;
+    boss = { x: rand(400, WORLD.w - 400), y: rand(400, WORLD.h - 400), r: BOSS_R, hp: 3 };
+    io.emit('bossSpawned', {});
+}
+// boss is destroyed by DASHING into it (risk: costs mass on hit if not dashing)
+function checkBossHits(now) {
+    if (!boss) return;
+    for (const w of collectWorms()) {
+        const o = w.ent;
+        const hitR = o.r * 0.6 + boss.r * 0.9;
+        if (dist2(o, boss) < hitR * hitR) {
+            const dashing = o.dashUntil > now;
+            if (dashing) {
+                boss.hp -= 1;
+                if (boss.hp <= 0) {
+                    o.targetR = capR(radiusForMass(massForRadius(o.targetR) + BOSS_MASS_REWARD));
+                    o.len += BOSS_MASS_REWARD * 0.6;
+                    if (w.kind === 'player') {
+                        io.to(w.id).emit('bossDefeated', { gain: BOSS_MASS_REWARD });
+                        io.to(w.id).emit('achievement', { id: 'boss_slayer', label: 'Boss Slayer!' });
+                    }
+                    io.emit('bossKilled', { name: o.name });
+                    boss = null;
+                    bossSpawnAt = now + BOSS_INTERVAL_MS;
+                }
+            } else if (!(o.shieldUntil > now)) {
+                // touching the boss without dashing costs mass — risk/reward
+                o.targetR = capR(radiusForMass(Math.max(16, massForRadius(o.targetR) - 30)));
+            }
+        }
+    }
+}
+
+spawnFood(FOOD_COUNT); spawnCoins(COIN_COUNT); spawnPowerups(POWERUP_COUNT); spawnViruses(VIRUS_COUNT);
+const deadPlayersCache = {}; // holds recent death state briefly so "continue" can restore it
+const CONTINUE_WINDOW_MS = 15000; // player must click continue within 15s of dying
 const owners = {};
 const bots = {};
 const revengeMemory = {};
@@ -162,7 +287,7 @@ function makeEntity(x, y, r, color, name, isBot) {
         wanderAngle: Math.random() * Math.PI * 2, wanderTimer: 0,
         boostUntil: 0, shieldUntil: 0, magnetUntil: 0, starUntil: 0, rampageUntil: 0,
         dashUntil: 0, dashReadyAt: 0, invisUntil: 0, invisReadyAt: 0, freezeReadyAt: 0, frozenUntil: 0,
-        killStreak: 0, rageUntil: 0, golden: false
+        killStreak: 0, rageUntil: 0, golden: false, portalCooldownUntil: 0
     };
 }
 function allBots() {
@@ -187,7 +312,8 @@ function updateWorm(o, dt) {
     const ix = o.inputX || 0, iy = o.inputY || 0;
     const mag = Math.hypot(ix, iy);
     const boosting = o.boosting && massForRadius(o.r) > 18;
-    const sp = speedFor(o) * (boosting ? 1.6 : 1);
+    const speedScale = lerp(0.55, 1, clamp(mag, 0, 1));
+    const sp = speedFor(o) * speedScale * (boosting ? 1.6 : 1);
     if (o.heading === undefined) o.heading = Math.atan2(iy || 0, ix || 1);
     if (mag > 0.05) {
         const desired = Math.atan2(iy, ix);
@@ -205,14 +331,17 @@ function updateWorm(o, dt) {
     advancePath(o, dt, o.len);
 }
 function wormSegments(o) {
-    const segs = []; let dist = 0, next = SEG_SPACING;
-    for (let i = 1; i < o.path.length && segs.length < 150; i++) {
+    const segs = []; let dist = 0;
+    const step = clamp(o.r * 0.32, 8, 24);
+    let next = step;
+    const maxSegs = Math.min(400, Math.ceil((o.len + 60) / step) + 2);
+    for (let i = 1; i < o.path.length && segs.length < maxSegs; i++) {
         const a = o.path[i - 1], b = o.path[i];
         const d = Math.hypot(b.x - a.x, b.y - a.y);
         while (dist + d >= next) {
             const t = (next - dist) / d;
             segs.push({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) });
-            next += SEG_SPACING;
+            next += step;
         }
         dist += d;
     }
@@ -223,8 +352,11 @@ function spawnBot() {
     const i = botSpawnIndex++;
     const lap = Math.floor(i / BOT_NAMES.length) + 1;
     const name = BOT_NAMES[i % BOT_NAMES.length] + (lap > 1 ? ' ' + lap : '');
-    const r = rand(14, 26);
-    const b = makeEntity(rand(200, WORLD.w - 200), rand(200, WORLD.h - 200), r, PALETTE[i % PALETTE.length], name, true);
+    const r = rand(8, 14);
+    const botColor = PALETTE[Math.floor(Math.random() * PALETTE.length)];
+    const b = makeEntity(rand(200, WORLD.w - 200), rand(200, WORLD.h - 200), r, botColor, name, true);
+    b.pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
+    b.second = BOT_SECOND_COLORS[Math.floor(Math.random() * BOT_SECOND_COLORS.length)];
     b.path = [{ x: b.x, y: b.y }];
     b.len = START_LEN;
     bots[uid()] = b;
@@ -238,17 +370,19 @@ io.on('connection', socket => {
         const second = typeof payload?.second === 'string' && /^#[0-9a-fA-F]{6}$/.test(payload.second) ? payload.second : null;
         const pattern = PATTERNS.includes(payload?.pattern) ? payload.pattern : 'solid';
         const perk = ['speedy', 'heavy', 'magnetic', 'lucky'].includes(payload?.perk) ? payload.perk : 'none';
+        const hat = typeof payload?.hat === 'string' ? payload.hat : 'none';
         const sx = rand(200, WORLD.w - 200), sy = rand(200, WORLD.h - 200);
-        const startR = perk === 'heavy' ? 24 : 16;
+        const startR = perk === 'heavy' ? 16 : 10;
         owners[socket.id] = {
-            name, color, second, pattern, perk, inputX: 0, inputY: 0,
+            name, color, second, pattern, perk, hat, inputX: 0, inputY: 0,
             x: sx, y: sy, r: startR, targetR: startR, kills: 0,
             len: START_LEN, path: [{ x: sx, y: sy }],
             boostUntil: 0, shieldUntil: 0, magnetUntil: perk === 'magnetic' ? Number.MAX_SAFE_INTEGER : 0,
             starUntil: 0, rampageUntil: 0, dashUntil: 0, dashReadyAt: 0, invisUntil: 0, invisReadyAt: 0,
-            freezeReadyAt: 0, frozenUntil: 0, killStreak: 0, rageUntil: 0, lastRank: undefined
+            freezeReadyAt: 0, frozenUntil: 0, killStreak: 0, rageUntil: 0, lastRank: undefined,
+            portalCooldownUntil: 0, sessionKills: 0, sessionStart: Date.now()
         };
-        socket.emit('welcome', { id: socket.id, world: WORLD });
+        socket.emit('welcome', { id: socket.id, world: WORLD, biomeCount: BIOME_COUNT });
     });
     socket.on('input', dir => {
         const o = owners[socket.id];
@@ -269,27 +403,48 @@ io.on('connection', socket => {
             if (did) socket.emit('sfx', 'freeze');
         }
     });
-    socket.on('disconnect', () => { delete owners[socket.id]; delete revengeMemory[socket.id]; });
+    socket.on('continueAfterAd', () => {
+        const saved = deadPlayersCache[socket.id];
+        if (!saved || Date.now() - saved.savedAt > CONTINUE_WINDOW_MS) {
+            socket.emit('continueFailed');
+            return;
+        }
+        const revivedR = radiusForMass(massForRadius(saved.r) * 0.5); // revive at 50% of previous mass
+        owners[socket.id] = {
+            ...saved, r: revivedR, targetR: revivedR,
+            x: rand(200, WORLD.w - 200), y: rand(200, WORLD.h - 200),
+            path: [{ x: 0, y: 0 }], shieldUntil: Date.now() + 3000
+        };
+        owners[socket.id].path = [{ x: owners[socket.id].x, y: owners[socket.id].y }];
+        delete deadPlayersCache[socket.id];
+        socket.emit('continued');
+    });
+    socket.on('disconnect', () => { delete owners[socket.id]; delete revengeMemory[socket.id]; delete deadPlayersCache[socket.id]; });
 });
 
-function eatFood(entity) {
+function eatFood(entity, foodGrid, isPlayer) {
     let ate = false;
-    for (let i = food.length - 1; i >= 0; i--) {
-        const f = food[i];
-        if (dist2(entity, f) < (entity.r + f.r) * (entity.r + f.r)) {
-            entity.targetR = capR(radiusForMass(massForRadius(entity.r) + (f.bonus || 3.5)));
-            food.splice(i, 1); ate = true;
+    const nearby = nearbyItems(foodGrid, entity.x, entity.y, GRID_CELL, 1);
+    const EAT_REACH = 1.5; // eats food slightly before actual touch, like wormhole
+    const bonusMult = isPlayer ? 1.6 : 1; // players grow a bit faster than bots to stay competitive
+    for (const f of nearby) {
+        if (f.eaten) continue;
+        const reach = (entity.r + f.r) * EAT_REACH;
+        if (dist2(entity, f) < reach * reach) {
+            entity.targetR = capR(radiusForMass(massForRadius(entity.r) + (f.bonus || 3.5) * bonusMult));
+            f.eaten = true; ate = true;
         }
     }
     return ate;
 }
-function eatCoins(entity) {
+function eatCoins(entity, coinGrid) {
     let count = 0;
-    for (let i = coins.length - 1; i >= 0; i--) {
-        const c = coins[i];
+    const nearby = nearbyItems(coinGrid, entity.x, entity.y, GRID_CELL, 1);
+    for (const c of nearby) {
+        if (c.eaten) continue;
         if (dist2(entity, c) < (entity.r + c.r) * (entity.r + c.r)) {
-            entity.targetR = capR(radiusForMass(massForRadius(entity.r) + 2.5));
-            coins.splice(i, 1); count++;
+            entity.targetR = capR(radiusForMass(massForRadius(entity.r) + 90));
+            c.eaten = true; count++;
         }
     }
     return count;
@@ -309,9 +464,11 @@ function eatPowerup(entity) {
     }
     return null;
 }
-function applyMagnet(entity, dt) {
+function applyMagnet(entity, dt, foodGrid) {
     if (!(entity.magnetUntil > Date.now())) return;
-    for (const f of food) {
+    const nearby = nearbyItems(foodGrid, entity.x, entity.y, GRID_CELL, 2);
+    for (const f of nearby) {
+        if (f.eaten) continue;
         if (dist2(entity, f) < MAGNET_RADIUS * MAGNET_RADIUS) {
             const dx = entity.x - f.x, dy = entity.y - f.y;
             const d = Math.hypot(dx, dy) || 1;
@@ -320,11 +477,17 @@ function applyMagnet(entity, dt) {
         }
     }
 }
-function updateBot(b, dt) {
+function updateBot(b, dt, foodGrid) {
     if (b.frozenUntil > Date.now()) { advancePath(b, dt, b.len); return; }
     b.wanderTimer -= dt;
     let nearestFood = null, nd = Infinity;
-    for (const f of food) { const d = dist2(b, f); if (d < nd) { nd = d; nearestFood = f; } }
+    let candidates = nearbyItems(foodGrid, b.x, b.y, GRID_CELL, 1);
+    if (!candidates.length) candidates = nearbyItems(foodGrid, b.x, b.y, GRID_CELL, 2);
+    for (const f of candidates) {
+        if (f.eaten) continue;
+        const d = dist2(b, f);
+        if (d < nd) { nd = d; nearestFood = f; }
+    }
     let threat = null, td = Infinity;
     const now = Date.now();
     for (const o of allBots()) {
@@ -336,7 +499,11 @@ function updateBot(b, dt) {
     if (threat) desiredAng = Math.atan2(b.y - threat.y, b.x - threat.x);
     else if (nearestFood && nd < 500 * 500) desiredAng = Math.atan2(nearestFood.y - b.y, nearestFood.x - b.x);
     else {
-        if (b.wanderTimer <= 0) { b.wanderAngle = Math.random() * Math.PI * 2; b.wanderTimer = rand(1.2, 2.6); }
+        if (b.wanderTimer <= 0) {
+            const turnAmount = rand(-1.1, 1.1); // relative turn only, not a full random direction — avoids spiral loops
+            b.wanderAngle = (b.heading || 0) + turnAmount;
+            b.wanderTimer = rand(1.4, 2.8);
+        }
         desiredAng = b.wanderAngle;
     }
     const margin = 220;
@@ -376,11 +543,15 @@ function checkDeaths(now, segCache) {
         for (const other of worms) {
             if (other === w) continue;
             const dx = other.ent.x - o.x, dy = other.ent.y - o.y;
-            if (dx * dx + dy * dy > PROX_RANGE * PROX_RANGE) continue;
+            const reach = PROX_RANGE + (other.ent.len || 0);
+            if (dx * dx + dy * dy > reach * reach) continue;
             const segs = segCache.get(other.ent) || [];
-            const hitR = o.r * 0.6 + BODY_HIT_PAD;
-            for (const s of segs) {
-                if (dist2(o, s) < hitR * hitR) { killer = other; break; }
+            const n = segs.length;
+            for (let si = 0; si < n; si++) {
+                const t = si / Math.max(1, n - 1);
+                const segR = lerp(other.ent.r, other.ent.r * 0.35, t) * 0.92;
+                const hitR = o.r * 0.6 + segR * 0.5 + BODY_HIT_PAD;
+                if (dist2(o, segs[si]) < hitR * hitR) { killer = other; break; }
             }
             if (killer) break;
         }
@@ -391,17 +562,31 @@ function checkDeaths(now, segCache) {
                 if (dist2(o, v) < hitR * hitR) { cause = 'virus'; break; }
             }
         }
-        if (killer || cause === 'virus') dead.push({ id: w.id, kind: w.kind, ent: o, killer, cause });
+        if (!killer && cause === null) {
+            const BORDER_PAD = 4;
+            if (o.x <= o.r + BORDER_PAD || o.x >= WORLD.w - o.r - BORDER_PAD ||
+                o.y <= o.r + BORDER_PAD || o.y >= WORLD.h - o.r - BORDER_PAD) {
+                cause = 'border';
+            }
+        }
+        if (killer || cause === 'virus' || cause === 'border') dead.push({ id: w.id, kind: w.kind, ent: o, killer, cause });
     }
     return dead;
 }
 function dropFoodFromCorpse(o) {
     const segs = wormSegments(o);
     const mass = massForRadius(o.r);
-    const chunkBonus = clamp(mass * 0.015, 3, 10);
-    const chunkR = clamp(o.r * 0.3, 5, 16);
-    for (let i = 0; i < segs.length; i += 3) {
-        food.push({ x: segs[i].x + rand(-10, 10), y: segs[i].y + rand(-10, 10), r: chunkR + rand(-2, 2), color: o.color, bonus: chunkBonus });
+    const chunkBonus = clamp(mass * 0.05, 150, 900);
+    const chunkR = 20;
+    for (let i = 0; i < segs.length; i += 2) {
+        food.push({
+            x: segs[i].x + rand(-14, 14),
+            y: segs[i].y + rand(-14, 14),
+            r: chunkR + rand(-3, 3),
+            color: '#ffd700',
+            bonus: chunkBonus,
+            golden: true
+        });
     }
 }
 function tryGoldenSpawn(now) {
@@ -415,47 +600,77 @@ function tryGoldenSpawn(now) {
     io.emit('golden', { name: bots[id].name });
 }
 
+// ---- NEW: Daily-ish challenge tracked server-side per connected player (resets on reconnect for simplicity) ----
+function checkChallenge(o, id) {
+    const CHALLENGE_KILLS = 5;
+    const CHALLENGE_MASS = 50000;
+    if (!o.challengeDone) {
+        if ((o.sessionKills || 0) >= CHALLENGE_KILLS || massForRadius(o.r) >= CHALLENGE_MASS) {
+            o.challengeDone = true;
+            io.to(id).emit('coin', 100);
+            io.to(id).emit('achievement', { id: 'challenge', label: 'Challenge Complete! +100 coins' });
+        }
+    }
+}
+
 let last = Date.now();
+let ranked = [];
 setInterval(() => {
     const now = Date.now();
     const dt = Math.min((now - last) / 1000, 0.05);
     last = now;
 
+    const foodGrid = buildGrid(food, GRID_CELL);
+    const coinGrid = buildGrid(coins, GRID_CELL);
+
     for (const id in owners) updateWorm(owners[id], dt);
-    for (const id in bots) updateBot(bots[id], dt);
-    for (const id in owners) applyMagnet(owners[id], dt);
-    for (const id in bots) applyMagnet(bots[id], dt);
+    for (const id in bots) updateBot(bots[id], dt, foodGrid);
+    for (const id in owners) applyMagnet(owners[id], dt, foodGrid);
+    for (const id in bots) applyMagnet(bots[id], dt, foodGrid);
+
+    // portal checks (players + bots)
+    for (const id in owners) tryPortal(owners[id], now);
+    for (const id in bots) tryPortal(bots[id], now);
+
+    trySpawnBoss(now);
+    checkBossHits(now);
 
     const segCache = new Map();
     for (const id in owners) segCache.set(owners[id], wormSegments(owners[id]));
     for (const id in bots) segCache.set(bots[id], wormSegments(bots[id]));
+    lastSegCache = segCache;
 
     for (const id in owners) {
         const o = owners[id];
         let coinCount = 0, ateFood = false, powerType = null;
         const mult = (o.starUntil > now ? 2 : 1) * (o.rageUntil > now ? RAGE_MULT : 1);
-        if (eatFood(o)) { ateFood = true; o.len += 4 * mult; }
-        coinCount += eatCoins(o);
+        if (eatFood(o, foodGrid, true)) { ateFood = true; o.len += 4 * mult; }
+        coinCount += eatCoins(o, coinGrid);
         if (coinCount > 0) o.len += coinCount * 2 * mult;
         const pt = eatPowerup(o); if (pt) powerType = pt;
         if (eatRampage(o)) io.to(id).emit('sfx', 'rampage');
         if (coinCount > 0) io.to(id).emit('coin', o.perk === 'lucky' ? coinCount * 2 : coinCount);
         else if (powerType) io.to(id).emit('sfx', powerType);
         else if (ateFood) io.to(id).emit('sfx', 'food');
+        checkChallenge(o, id);
     }
     for (const id in bots) {
         const b = bots[id];
-        if (eatFood(b)) b.len += 4;
-        const c = eatCoins(b); if (c > 0) b.len += c * 2;
+        if (eatFood(b, foodGrid, false)) b.len += 4;
+        const c = eatCoins(b, coinGrid); if (c > 0) b.len += c * 2;
         eatPowerup(b);
         eatRampage(b);
     }
+
+    if (food.some(f => f.eaten)) food = food.filter(f => !f.eaten);
+    if (coins.some(c => c.eaten)) coins = coins.filter(c => !c.eaten);
 
     for (const w of checkDeaths(now, segCache)) {
         dropFoodFromCorpse(w.ent);
         if (w.killer) {
             const k = w.killer.ent;
             k.kills = (k.kills || 0) + 1;
+            k.sessionKills = (k.sessionKills || 0) + 1;
             k.killStreak = (k.killStreak || 0) + 1;
             if (k.killStreak >= RAGE_STREAK) k.rageUntil = now + RAGE_MS;
             if (w.killer.kind === 'player') {
@@ -465,6 +680,19 @@ setInterval(() => {
                     delete revengeMemory[w.killer.id];
                     io.to(w.killer.id).emit('sfx', 'revenge');
                 }
+            }
+
+            const victimMass = massForRadius(w.ent.r);
+            const killMult = victimMass >= 500 ? 3 : 1;
+            const massGain = victimMass * killMult;
+            k.targetR = capR(radiusForMass(massForRadius(k.targetR) + massGain));
+            k.len += massGain * 0.9;
+
+            if (w.killer.kind === 'player') {
+                io.to(w.killer.id).emit('gotKill', { victim: w.ent.name, gain: Math.round(massGain) });
+                if (k.kills === 1) io.to(w.killer.id).emit('achievement', { id: 'first_kill', label: 'First Blood!' });
+                if (k.kills === 10) io.to(w.killer.id).emit('achievement', { id: 'ten_kills', label: '10 Kills!' });
+                if (k.kills === 50) io.to(w.killer.id).emit('achievement', { id: 'fifty_kills', label: '50 Kills — Predator!' });
             }
             if (w.id === goldenBotId) {
                 if (w.killer.kind === 'player') io.to(w.killer.id).emit('coin', GOLDEN_COIN_BONUS);
@@ -481,7 +709,8 @@ setInterval(() => {
         }
         io.emit('kill', { victim: w.ent.name, killer: w.killer ? w.killer.ent.name : null, cause: w.cause });
         if (w.kind === 'player') {
-            io.to(w.id).emit('died', { size: Math.round(massForRadius(w.ent.r)), kills: w.ent.kills || 0 });
+            deadPlayersCache[w.id] = { ...w.ent, savedAt: now };
+            io.to(w.id).emit('died', { size: Math.round(massForRadius(w.ent.r)), kills: w.ent.kills || 0, canContinue: true });
             delete owners[w.id];
         } else {
             delete bots[w.id];
@@ -501,7 +730,7 @@ setInterval(() => {
         goldenSpawnAt = now + GOLDEN_INTERVAL_MS;
     }
 
-    const ranked = collectWorms().sort((a, b) => massForRadius(b.ent.r) - massForRadius(a.ent.r));
+    ranked = collectWorms().sort((a, b) => massForRadius(b.ent.r) - massForRadius(a.ent.r));
     ranked.forEach((w, i) => {
         if (w.kind === 'player') {
             const rank = i + 1;
@@ -510,29 +739,72 @@ setInterval(() => {
                 io.to(w.id).emit('milestone', { type: 'top5' });
             }
             o.lastRank = rank;
+
+            const mass = massForRadius(o.r);
+            const lakh = Math.floor(mass / 100000);
+            if (lakh > (o.lastLakh || 0)) {
+                o.lastLakh = lakh;
+                io.to(w.id).emit('lakhMilestone', { lakh });
+            }
         }
     });
 
-    io.emit('state', {
-        players: Object.fromEntries(Object.entries(owners).map(([id, o]) => [id, {
-            name: o.name, color: o.color, second: o.second, pattern: o.pattern, x: o.x, y: o.y, r: o.r, kills: o.kills || 0, segments: segCache.get(o) || [],
-            boost: o.boostUntil > now, shield: o.shieldUntil > now, magnet: o.magnetUntil > now, star: o.starUntil > now,
-            dashing: o.dashUntil > now, dashReadyAt: o.dashReadyAt || 0,
-            invis: o.invisUntil > now, invisReadyAt: o.invisReadyAt || 0,
-            frozen: o.frozenUntil > now, freezeReadyAt: o.freezeReadyAt || 0,
-            rage: o.rageUntil > now, rampage: o.rampageUntil > now
-        }])),
-        bots: Object.fromEntries(Object.entries(bots).map(([id, b]) => [id, {
-            x: b.x, y: b.y, r: b.r, color: b.color, name: b.name, segments: segCache.get(b) || [],
-            boost: b.boostUntil > now, shield: b.shieldUntil > now, magnet: b.magnetUntil > now, star: b.starUntil > now,
-            frozen: b.frozenUntil > now, rampage: b.rampageUntil > now, golden: !!b.golden
-        }])),
-        food: food.map(f => ({ x: f.x, y: f.y, r: f.r, color: f.color, emoji: f.emoji || null })),
-        coins: coins.map(c => ({ x: c.x, y: c.y, r: c.r })),
-        powerups: powerups.map(pu => ({ x: pu.x, y: pu.y, r: pu.r, type: pu.type })),
-        viruses: viruses.map(v => ({ x: v.x, y: v.y, r: v.r })),
-        rampageOrb: rampageOrb ? { x: rampageOrb.x, y: rampageOrb.y, r: rampageOrb.r } : null
-    });
+    const VIEW_RADIUS = 2200;
+    const VIEW_R2 = VIEW_RADIUS * VIEW_RADIUS;
+    const inView = (obj, px, py) => {
+        const dx = obj.x - px, dy = obj.y - py;
+        return dx * dx + dy * dy < VIEW_R2;
+    };
+
+    const allPlayersData = Object.fromEntries(Object.entries(owners).map(([id, o]) => [id, {
+        name: o.name, color: o.color, second: o.second, pattern: o.pattern, hat: o.hat || 'none', x: o.x, y: o.y, r: o.r, kills: o.kills || 0, segments: segCache.get(o) || [],
+        boost: o.boostUntil > now, shield: o.shieldUntil > now, magnet: o.magnetUntil > now, star: o.starUntil > now,
+        dashing: o.dashUntil > now, dashReadyAt: o.dashReadyAt || 0,
+        invis: o.invisUntil > now, invisReadyAt: o.invisReadyAt || 0,
+        frozen: o.frozenUntil > now, freezeReadyAt: o.freezeReadyAt || 0,
+        rage: o.rageUntil > now, rampage: o.rampageUntil > now
+    }]));
+    const allBotsData = Object.fromEntries(Object.entries(bots).map(([id, b]) => [id, {
+        x: b.x, y: b.y, r: b.r, color: b.color, name: b.name, segments: segCache.get(b) || [],
+        boost: b.boostUntil > now, shield: b.shieldUntil > now, magnet: b.magnetUntil > now, star: b.starUntil > now,
+        frozen: b.frozenUntil > now, rampage: b.rampageUntil > now, golden: !!b.golden
+    }]));
+    const allFoodData = food.map(f => ({ x: f.x, y: f.y, r: f.r, color: f.color, emoji: f.emoji || null, golden: f.golden || false }));
+    const allCoinsData = coins.map(c => ({ x: c.x, y: c.y, r: c.r }));
+    const allPowerupsData = powerups.map(pu => ({ x: pu.x, y: pu.y, r: pu.r, type: pu.type }));
+    const allVirusesData = viruses.map(v => ({ x: v.x, y: v.y, r: v.r }));
+    const rampageOrbData = rampageOrb ? { x: rampageOrb.x, y: rampageOrb.y, r: rampageOrb.r } : null;
+    const portalData = portals.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color }));
+    const bossData = boss ? { x: boss.x, y: boss.y, r: boss.r, hp: boss.hp } : null;
+
+    const leaderboardData = ranked.map(w => ({ name: w.ent.name, mass: massForRadius(w.ent.r), me: w.kind === 'player' ? w.id : null }));
+
+    for (const id in owners) {
+        const me = owners[id];
+        const px = me.x, py = me.y;
+
+        const players = { [id]: allPlayersData[id] };
+        for (const oid in allPlayersData) {
+            if (oid !== id && inView(allPlayersData[oid], px, py)) players[oid] = allPlayersData[oid];
+        }
+        const botsNear = {};
+        for (const bid in allBotsData) {
+            if (inView(allBotsData[bid], px, py)) botsNear[bid] = allBotsData[bid];
+        }
+
+        io.to(id).emit('state', {
+            players,
+            bots: botsNear,
+            food: allFoodData.filter(f => inView(f, px, py)),
+            coins: allCoinsData.filter(c => inView(c, px, py)),
+            powerups: allPowerupsData.filter(pu => inView(pu, px, py)),
+            viruses: allVirusesData.filter(v => inView(v, px, py)),
+            rampageOrb: rampageOrbData,
+            portals: portalData.filter(p => inView(p, px, py)),
+            boss: bossData && inView(bossData, px, py) ? bossData : null,
+            leaderboard: leaderboardData
+        });
+    }
 }, 1000 / 30);
 
 const PORT = process.env.PORT || 3000;
