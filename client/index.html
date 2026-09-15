@@ -2,10 +2,12 @@
 <html lang="en">
 
 <head>
+    <script src="https://sdk.crazygames.com/crazygames-sdk-v3.js"></script>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
     <title>Munchr.io</title>
     <link rel="stylesheet" href="style.css">
+    <link rel="icon" href="data:,">
 </head>
 
 <body>
@@ -22,14 +24,13 @@
     </div>
 
     <div id="overlay">
+        <canvas id="bgWormCanvas"></canvas>
+        <div class="neonBg">
+            <span class="neonBlob b1"></span>
+            <span class="neonBlob b2"></span>
+            <span class="neonBlob b3"></span>
+        </div>
         <div class="topBar">
-            <div class="avatarBadge">
-                <div class="avatarFace">🐛</div>
-                <div class="levelPip">1</div>
-                <div class="xpTrack">
-                    <div class="xpFill"></div>
-                </div>
-            </div>
             <div class="playerNameTag" id="topNameTag">Player</div>
             <div class="gemsPill">
                 <span class="gemIcon">●</span>
@@ -75,6 +76,8 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="game.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
+    <script>eruda.init();</script>
 </body>
 
 </html>
