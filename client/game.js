@@ -1107,21 +1107,12 @@ function drawWormFromSegments(o, isMe, key) {
         } else {
             const shade = i % 2 === 0 ? 4 : -5;
             const segColor = o.golden ? lighten('#ffd700', shade) : cachedSegmentFill(o, i, segs.length, key);
-            const segGrad = ctx.createRadialGradient(
-                segs[i].x - r * 0.32, segs[i].y - r * 0.38, r * 0.1,
-                segs[i].x, segs[i].y, r * 1.1
-            );
-            segGrad.addColorStop(0, lighten(segColor, 24));
-            segGrad.addColorStop(0.55, segColor);
-            segGrad.addColorStop(1, lighten(segColor, -20));
-            ctx.beginPath(); ctx.fillStyle = segGrad;
+            ctx.beginPath(); ctx.fillStyle = segColor;
             ctx.arc(segs[i].x, segs[i].y, r * 1.08, 0, Math.PI * 2); ctx.fill();
 
             ctx.beginPath();
-            ctx.strokeStyle = 'rgba(255,255,255,0.22)';
-            ctx.lineWidth = Math.max(1.2, r * 0.1);
-            ctx.arc(segs[i].x, segs[i].y, r * 0.7, Math.PI * 1.2, Math.PI * 1.65);
-            ctx.stroke();
+            ctx.fillStyle = lighten(segColor, 22);
+            ctx.arc(segs[i].x - r * 0.28, segs[i].y - r * 0.32, r * 0.35, 0, Math.PI * 2); ctx.fill();
         }
     }
     drawSideFins(o, segs);
