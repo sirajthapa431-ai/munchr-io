@@ -33,7 +33,9 @@ const DASH_COOLDOWN_MS = 8000;
 const DASH_DURATION_MS = 250;
 const DASH_SPEED_MULT = 2.6;
 const DASH_MIN_MASS = 20;
-const DEV_UNLIMITED_DASH_NAME = 'ram'; // yo name le join garda dash cooldown/mass check hudaina
+// Production ma dev backdoor off. Testing garna Render env var DEV_NAME set garnu
+// (Render dashboard → Environment → DEV_NAME=ram), production ma khali chodnu.
+const DEV_UNLIMITED_DASH_NAME = process.env.DEV_NAME || null;
 const INVIS_COOLDOWN_MS = 12000;
 const INVIS_DURATION_MS = 3000;
 const FREEZE_COOLDOWN_MS = 10000;
@@ -416,17 +418,19 @@ function updateWorm(o, dt) {
     if (boosting) o.len = Math.max(START_LEN * 0.5, o.len - 30 * dt);
     advancePath(o, dt, o.len);
 }
+const SEG_STEP_MULT = 0.62; // pahile 0.32 — segments aadha huncha, body visually ustai
+const MAX_SEGS = 180;       // pahile 400
 function wormSegments(o) {
     const segs = []; let dist = 0;
-    const step = clamp(o.r * 0.32, 8, 24);
+    const step = clamp(o.r * SEG_STEP_MULT, 14, 46);
     let next = step;
-    const maxSegs = Math.min(400, Math.ceil((o.len + 60) / step) + 2);
+    const maxSegs = Math.min(MAX_SEGS, Math.ceil((o.len + 60) / step) + 2);
     for (let i = 1; i < o.path.length && segs.length < maxSegs; i++) {
         const a = o.path[i - 1], b = o.path[i];
         const d = Math.hypot(b.x - a.x, b.y - a.y);
         while (dist + d >= next) {
             const t = (next - dist) / d;
-            segs.push({ x: lerp(a.x, b.x, t), y: lerp(a.y, b.y, t) });
+            segs.push({ x: Math.round(lerp(a.x, b.x, t)), y: Math.round(lerp(a.y, b.y, t)) }); // int — JSON size 2-3x kam
             next += step;
         }
         dist += d;
@@ -651,16 +655,30 @@ function collectWorms() {
 function checkDeaths(now, segCache) {
     const worms = collectWorms();
     const dead = [];
-    const PROX_RANGE = 350;
+    // herek worm ko body ko actual bounding box — purano "PROX_RANGE + len" check
+    // thulo worm ma kahilyai skip hudainathyo (len lakhau ma pugcha)
+    const bounds = new Map();
+    for (const w of worms) {
+        const segs = segCache.get(w.ent) || [];
+        let minX = w.ent.x, maxX = w.ent.x, minY = w.ent.y, maxY = w.ent.y;
+        for (let i = 0; i < segs.length; i++) {
+            const s = segs[i];
+            if (s.x < minX) minX = s.x;
+            if (s.x > maxX) maxX = s.x;
+            if (s.y < minY) minY = s.y;
+            if (s.y > maxY) maxY = s.y;
+        }
+        const pad = w.ent.r + BODY_HIT_PAD + 6;
+        bounds.set(w.ent, { minX: minX - pad, maxX: maxX + pad, minY: minY - pad, maxY: maxY + pad });
+    }
     for (const w of worms) {
         const o = w.ent;
         if (o.shieldUntil > now) continue;
         let killer = null;
         for (const other of worms) {
             if (other === w) continue;
-            const dx = other.ent.x - o.x, dy = other.ent.y - o.y;
-            const reach = PROX_RANGE + (other.ent.len || 0);
-            if (dx * dx + dy * dy > reach * reach) continue;
+            const bb = bounds.get(other.ent);
+            if (!bb || o.x < bb.minX || o.x > bb.maxX || o.y < bb.minY || o.y > bb.maxY) continue;
             const segs = segCache.get(other.ent) || [];
             const n = segs.length;
             for (let si = 0; si < n; si++) {
@@ -874,7 +892,7 @@ setInterval(() => {
     };
 
     const allPlayersData = Object.fromEntries(Object.entries(owners).map(([id, o]) => [id, {
-        name: o.name, color: o.color, second: o.second, pattern: o.pattern, hat: o.hat || 'none', x: o.x, y: o.y, r: o.r, kills: o.kills || 0, segments: segCache.get(o) || [],
+        name: o.name, color: o.color, second: o.second, pattern: o.pattern, hat: o.hat || 'none', x: Math.round(o.x), y: Math.round(o.y), r: Math.round(o.r * 10) / 10, kills: o.kills || 0, segments: segCache.get(o) || [],
         boost: o.boostUntil > now, shield: o.shieldUntil > now, magnet: o.magnetUntil > now, star: o.starUntil > now,
         dashing: o.dashUntil > now, dashReadyAt: o.dashReadyAt || 0,
         invis: o.invisUntil > now, invisReadyAt: o.invisReadyAt || 0,
@@ -882,19 +900,24 @@ setInterval(() => {
         rage: o.rageUntil > now, rampage: o.rampageUntil > now
     }]));
     const allBotsData = Object.fromEntries(Object.entries(bots).map(([id, b]) => [id, {
-        x: b.x, y: b.y, r: b.r, color: b.color, name: b.name, segments: segCache.get(b) || [],
+        x: Math.round(b.x), y: Math.round(b.y), r: Math.round(b.r * 10) / 10, color: b.color, name: b.name, segments: segCache.get(b) || [],
         boost: b.boostUntil > now, shield: b.shieldUntil > now, magnet: b.magnetUntil > now, star: b.starUntil > now,
         frozen: b.frozenUntil > now, rampage: b.rampageUntil > now, golden: !!b.golden
     }]));
-    const allFoodData = food.map(f => ({ x: f.x, y: f.y, r: f.r, color: f.color, emoji: f.emoji || null, golden: f.golden || false, group: f.group ?? null }));
-    const allCoinsData = coins.map(c => ({ x: c.x, y: c.y, r: c.r }));
-    const allPowerupsData = powerups.map(pu => ({ x: pu.x, y: pu.y, r: pu.r, type: pu.type }));
-    const allVirusesData = viruses.map(v => ({ x: v.x, y: v.y, r: v.r }));
+    const allFoodData = food.map(f => ({ x: Math.round(f.x), y: Math.round(f.y), r: Math.round(f.r), color: f.color, emoji: f.emoji || null, golden: f.golden || false, group: f.group ?? null }));
+    const allCoinsData = coins.map(c => ({ x: Math.round(c.x), y: Math.round(c.y), r: c.r }));
+    const allPowerupsData = powerups.map(pu => ({ x: Math.round(pu.x), y: Math.round(pu.y), r: pu.r, type: pu.type }));
+    const allVirusesData = viruses.map(v => ({ x: Math.round(v.x), y: Math.round(v.y), r: v.r }));
     const rampageOrbData = rampageOrb ? { x: rampageOrb.x, y: rampageOrb.y, r: rampageOrb.r } : null;
     const portalData = portals.map(p => ({ x: p.x, y: p.y, r: p.r, color: p.color }));
     const bossData = boss ? { x: boss.x, y: boss.y, r: boss.r, hp: boss.hp } : null;
 
-    const leaderboardData = ranked.map(w => ({ name: w.ent.name, mass: massForRadius(w.ent.r), me: w.kind === 'player' ? w.id : null }));
+    // leaderboard client ma 400ms ma matra render huncha — hareक tick pathaउनu waste
+    if (!globalThis.__lbNext || now >= globalThis.__lbNext) {
+        globalThis.__lbCache = ranked.map(w => ({ name: w.ent.name, mass: Math.round(massForRadius(w.ent.r)), me: w.kind === 'player' ? w.id : null }));
+        globalThis.__lbNext = now + 400;
+    }
+    const leaderboardData = globalThis.__lbCache;
 
     for (const id in owners) {
         const me = owners[id];
@@ -931,7 +954,7 @@ setInterval(() => {
                 : null
         });
     }
-}, 1000 / 30);
+}, 1000 / 24); // 30 bata 24 tick/sec — CPU load kam garna, visually farak thaha painna
 
 const PORT = process.env.PORT || 3000;
 httpServer.listen(PORT, () => console.log('Munchr.io server running: http://localhost:' + PORT));
