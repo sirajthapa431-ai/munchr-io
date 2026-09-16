@@ -1,15 +1,34 @@
 const socket = io();
 const canvas = document.getElementById('game');
 const ctx = canvas.getContext('2d');
+const isMobileDevice = (('ontouchstart' in window) || navigator.maxTouchPoints > 0) && Math.min(window.innerWidth, window.innerHeight) < 900;
+
 let W, H, DPR;
 function resize() {
-    DPR = Math.min(window.devicePixelRatio || 1, 2);
+    DPR = Math.min(window.devicePixelRatio || 1, isMobileDevice ? 1 : 2);
     W = window.innerWidth; H = window.innerHeight;
     canvas.width = W * DPR; canvas.height = H * DPR;
     canvas.style.width = W + 'px'; canvas.style.height = H + 'px';
     ctx.setTransform(DPR, 0, 0, DPR, 0, 0);
 }
 window.addEventListener('resize', resize); resize();
+
+// ---- Mobile-friendly HUD scaling (injected, doesn't touch style.css) ----
+(function injectMobileStyles() {
+    const style = document.createElement('style');
+    style.textContent = `
+        @media (max-width: 640px), (pointer: coarse) {
+            #hud > div { font-size: 13px !important; padding: 6px 10px !important; }
+            #dashPanel, #invisPanel, #freezePanel, #challengePanel {
+                min-height: 38px;
+                touch-action: manipulation;
+            }
+            #leaderboard { transform: scale(0.8); transform-origin: top right; }
+            #nameInput, .battleBtn { font-size: 16px !important; } /* 16px prevents iOS auto-zoom on input focus */
+        }
+    `;
+    document.head.appendChild(style);
+})();
 
 const clamp = (v, a, b) => Math.max(a, Math.min(b, v));
 
@@ -24,7 +43,7 @@ function loadFoodImage(key, src) {
 }
 
 loadFoodImage('apple', 'assets/food/apple.png');
-loadFoodImage('orange', 'assets/food/orange.svg');
+loadFoodImage('orange', 'assets/food/orange.png');
 loadFoodImage('carrot', 'assets/food/carrot.png');
 loadFoodImage('broccoli', 'assets/food/broccoli.png');
 loadFoodImage('momo', 'assets/food/momo.png');
@@ -33,6 +52,9 @@ loadFoodImage('shabhale', 'assets/food/shabhale.png');
 
 const FOOD_IMAGE_KEYS = ['apple', 'orange', 'carrot', 'broccoli', 'momo', 'sekuwa', 'shabhale'];
 function pickFoodImageKey(f) {
+    if (f.group !== null && f.group !== undefined) {
+        return FOOD_IMAGE_KEYS[Math.abs(f.group) % FOOD_IMAGE_KEYS.length];
+    }
     const h = foodHash(f);
     return FOOD_IMAGE_KEYS[Math.floor(h * FOOD_IMAGE_KEYS.length) % FOOD_IMAGE_KEYS.length];
 }
@@ -139,6 +161,7 @@ function skinPreviewCSS(s) {
         case 'aurora': return `linear-gradient(120deg, ${c}, ${sec}, ${c})`;
         case 'inferno': return `linear-gradient(45deg, ${c}, ${sec}, #fff45c)`;
         case 'diamond': return `linear-gradient(135deg, #ffffff, ${sec}, ${c})`;
+        case 'customSkin': return `url('assets/worm/head.png') center/70% no-repeat, ${c}`;
         default: return c;
     }
 }
@@ -254,6 +277,8 @@ killfeedEl.id = 'killfeed';
 killfeedEl.style.cssText = 'position:fixed;top:16px;left:50%;transform:translateX(-50%);z-index:40;display:flex;flex-direction:column;align-items:center;gap:4px;pointer-events:none;font-family:Segoe UI,sans-serif;';
 document.body.appendChild(killfeedEl);
 function renderKillfeed() {
+    killfeedEl.style.display = playing ? 'flex' : 'none';
+    if (!playing) return;
     killfeedEl.innerHTML = '';
     killfeed.forEach(k => {
         const div = document.createElement('div');
@@ -767,6 +792,19 @@ window.addEventListener('keydown', e => {
     if (e.code === 'KeyC') { ensureAudio(); invisRequested = true; }
     if (e.code === 'KeyF') { ensureAudio(); freezeRequested = true; }
 });
+
+// ---- Mobile touch buttons for abilities (dash/cloak/freeze panels are click/tap-able now) ----
+function isTouchDevice() {
+    return ('ontouchstart' in window) || navigator.maxTouchPoints > 0;
+}
+if (isTouchDevice()) {
+    dashPanel.style.cursor = 'pointer';
+    invisPanel.style.cursor = 'pointer';
+    freezePanel.style.cursor = 'pointer';
+    dashPanel.addEventListener('touchstart', e => { e.stopPropagation(); ensureAudio(); dashRequested = true; }, { passive: true });
+    invisPanel.addEventListener('touchstart', e => { e.stopPropagation(); ensureAudio(); invisRequested = true; }, { passive: true });
+    freezePanel.addEventListener('touchstart', e => { e.stopPropagation(); ensureAudio(); freezeRequested = true; }, { passive: true });
+}
 setInterval(() => {
     if (!playing) return;
     const dx = mouse.x - W / 2, dy = mouse.y - H / 2;
@@ -1059,8 +1097,8 @@ function drawWormFromSegments(o, isMe, key) {
     const prevAlpha = ctx.globalAlpha;
     if (o.invis) ctx.globalAlpha = isMe ? 0.5 : 0.12;
 
-    // ground shadow
-    if (!o.invis) {
+    // ground shadow (skipped on mobile — cheap win, costly per-worm pass)
+    if (!o.invis && !isMobileDevice) {
         ctx.save();
         ctx.globalAlpha = 0.28;
         for (let i = segs.length - 1; i >= 0; i -= 4) {
@@ -1080,7 +1118,7 @@ function drawWormFromSegments(o, isMe, key) {
     }
 
     const bodyImgReady = o.pattern === 'customSkin' && wormImages.body && wormImages.body.loaded;
-    const segStep = segs.length > 150 ? 2 : 1;
+    const segStep = isMobileDevice ? (segs.length > 80 ? 4 : 2) : (segs.length > 150 ? 2 : 1);
     for (let i = segs.length - 1; i >= 0; i -= segStep) {
         const tLin = i / Math.max(1, segs.length - 1);
         let r = o.r;
@@ -1100,7 +1138,7 @@ function drawWormFromSegments(o, isMe, key) {
         }
 
         if (bodyImgReady) {
-            const size = r * 2.16;
+            const size = r * 2.9;
             ctx.drawImage(wormImages.body.img, segs[i].x - size / 2, segs[i].y - size / 2, size, size);
         } else {
             const shade = i % 2 === 0 ? 4 : -5;
@@ -1109,9 +1147,9 @@ function drawWormFromSegments(o, isMe, key) {
             ctx.arc(segs[i].x, segs[i].y, r * 1.08, 0, Math.PI * 2); ctx.fill();
         }
     }
-    drawSideFins(o, segs);
+    if (!isMobileDevice) drawSideFins(o, segs);
     drawTailFin(o, segs);
-    if (o.pattern === 'diamond') {
+    if (o.pattern === 'diamond' && !isMobileDevice) {
         for (let i = 0; i < segs.length; i += 4) {
             const twinkle = Math.sin(performance.now() / 180 + i * 1.7);
             if (twinkle > 0.6) {
@@ -1122,7 +1160,7 @@ function drawWormFromSegments(o, isMe, key) {
             }
         }
     }
-    if (o.pattern === 'inferno' || o.pattern === 'aurora') {
+    if ((o.pattern === 'inferno' || o.pattern === 'aurora') && !isMobileDevice) {
         for (let i = 0; i < segs.length; i += 5) {
             if (Math.random() < 0.15) {
                 const p = segs[i];
@@ -1133,7 +1171,7 @@ function drawWormFromSegments(o, isMe, key) {
                 ctx.fill();
             }
         }
-    } if (o.dashing || o.rampage) {
+    } if ((o.dashing || o.rampage) && !isMobileDevice) {
         for (let i = 0; i < segs.length; i += 3) {
             if (Math.random() < 0.4) {
                 const p = segs[i];
@@ -1163,7 +1201,7 @@ function drawWormFromSegments(o, isMe, key) {
     const baseColor = o.golden ? '#ffd700' : o.color;
     const headImgReady = o.pattern === 'customSkin' && wormImages.head && wormImages.head.loaded;
     if (headImgReady) {
-        const hs = o.r * 2.7;
+        const hs = o.r * 3.5;
         ctx.save();
         ctx.drawImage(wormImages.head.img, -hs / 2, -hs / 2, hs, hs);
         ctx.restore();
@@ -1425,6 +1463,21 @@ function render() {
     for (const f of latest.food) {
         if (f.x < cullL || f.x > cullR || f.y < cullT || f.y > cullB) continue;
         ctx.save(); ctx.translate(f.x, f.y);
+        if (f.golden) {
+            const gp = 0.75 + Math.sin(performance.now() / 900 + f.x) * 0.25; // slow, gentle pulse — easy on the eyes
+            ctx.save();
+            const glassR = f.r * 1.55;
+            const glass = ctx.createRadialGradient(-glassR * 0.25, -glassR * 0.3, glassR * 0.1, 0, 0, glassR);
+            glass.addColorStop(0, `rgba(255,240,180,${0.22 * gp})`);
+            glass.addColorStop(0.7, `rgba(255,215,0,${0.10 * gp})`);
+            glass.addColorStop(1, 'rgba(255,215,0,0)');
+            ctx.fillStyle = glass;
+            ctx.beginPath(); ctx.arc(0, 0, glassR, 0, Math.PI * 2); ctx.fill();
+            ctx.strokeStyle = `rgba(255,235,150,${0.35 * gp})`;
+            ctx.lineWidth = 1.4;
+            ctx.beginPath(); ctx.arc(0, 0, glassR * 0.92, 0, Math.PI * 2); ctx.stroke();
+            ctx.restore();
+        }
         if (f.emoji) {
             const bob = Math.sin(performance.now() / 260 + f.x) * (f.r * 0.1);
             const glowPulse = 0.8 + Math.sin(performance.now() / 240 + f.x) * 0.2;
@@ -1573,10 +1626,8 @@ requestAnimationFrame(render);
     }
 
     const worms = [
-        makeWorm(0, 46, 1.1, 5),
-        makeWorm(2, 34, 0.85, 4)
+        makeWorm(0, 46, 1.1, 5)
     ];
-
     function updateWorm(w, dt) {
         w.turnTimer -= dt;
         if (w.turnTimer <= 0) {
@@ -1602,28 +1653,50 @@ requestAnimationFrame(render);
     function drawWorm(w) {
         if (w.trail.length < 2) return;
         ctx.save();
-        ctx.shadowColor = w.color;
-        ctx.shadowBlur = 18;
-        ctx.strokeStyle = w.color;
-        ctx.lineCap = 'round';
-        ctx.lineJoin = 'round';
-        for (let i = 1; i < w.trail.length; i++) {
-            const t = 1 - i / w.trail.length;
-            ctx.globalAlpha = t * 0.8;
-            ctx.lineWidth = w.radius * t + 1;
-            ctx.beginPath();
-            ctx.moveTo(w.trail[i - 1].x, w.trail[i - 1].y);
-            ctx.lineTo(w.trail[i].x, w.trail[i].y);
-            ctx.stroke();
+        const bodyReady = wormImages.body && wormImages.body.loaded;
+        const headReady = wormImages.head && wormImages.head.loaded;
+        const breathe = 1 + Math.sin(performance.now() / 500 + w.x * 0.01) * 0.07;
+        if (bodyReady) {
+            const step = 2; // evenly spaced circular segments, like a real worm body
+            for (let i = w.trail.length - 1; i >= 1; i -= step) {
+                const t = 1 - i / w.trail.length;
+                const size = (w.radius * (0.55 + t * 0.6)) * 2.3 * breathe;
+                ctx.globalAlpha = clamp(t * 0.85 + 0.3, 0, 1);
+                ctx.drawImage(wormImages.body.img, w.trail[i].x - size / 2, w.trail[i].y - size / 2, size, size);
+            }
+            ctx.globalAlpha = 1;
+        } else {
+            ctx.shadowColor = w.color;
+            ctx.shadowBlur = 18;
+            ctx.strokeStyle = w.color;
+            ctx.lineCap = 'round';
+            ctx.lineJoin = 'round';
+            for (let i = 1; i < w.trail.length; i++) {
+                const t = 1 - i / w.trail.length;
+                ctx.globalAlpha = t * 0.8;
+                ctx.lineWidth = w.radius * t + 1;
+                ctx.beginPath();
+                ctx.moveTo(w.trail[i - 1].x, w.trail[i - 1].y);
+                ctx.lineTo(w.trail[i].x, w.trail[i].y);
+                ctx.stroke();
+            }
+            ctx.globalAlpha = 1;
         }
-        ctx.globalAlpha = 1;
-        ctx.fillStyle = w.color;
-        ctx.beginPath();
-        ctx.arc(w.trail[0].x, w.trail[0].y, w.radius + 1.5, 0, Math.PI * 2);
-        ctx.fill();
+        if (headReady) {
+            const headSize = (w.radius + 1.5) * 2.8 * breathe;
+            ctx.save();
+            ctx.translate(w.trail[0].x, w.trail[0].y);
+            ctx.rotate(w.angle);
+            ctx.drawImage(wormImages.head.img, -headSize / 2, -headSize / 2, headSize, headSize);
+            ctx.restore();
+        } else {
+            ctx.fillStyle = w.color;
+            ctx.beginPath();
+            ctx.arc(w.trail[0].x, w.trail[0].y, w.radius + 1.5, 0, Math.PI * 2);
+            ctx.fill();
+        }
         ctx.restore();
     }
-
     let lastTime = performance.now();
     function loop(now) {
         requestAnimationFrame(loop);

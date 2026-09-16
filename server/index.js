@@ -9,7 +9,14 @@ const app = express();
 const httpServer = createServer(app);
 const io = new Server(httpServer, { cors: { origin: '*' } });
 
-app.use(express.static(path.join(__dirname, '../client')));
+app.use(express.static(path.join(__dirname, '../client'), {
+    etag: false,
+    setHeaders: (res, filePath) => {
+        if (filePath.endsWith('.js') || filePath.endsWith('.html') || filePath.endsWith('.css')) {
+            res.setHeader('Cache-Control', 'no-cache, no-store, must-revalidate');
+        }
+    }
+}));
 
 const WORLD = { w: 8000, h: 8000 };
 const FOOD_COUNT = 1400;
@@ -18,7 +25,7 @@ const POWERUP_COUNT = 32;
 const PALETTE = ['#ff6fa5', '#ffd23f', '#4be3d0', '#b98bff', '#ff9d5c', '#6fe07a'];
 const PATTERNS = ['solid', 'stripe', 'dots', 'gradient', 'tiger', 'scale', 'rainbow', 'lava'];
 const BOT_SECOND_COLORS = ['#ffffff', '#7a4b00', '#2d0a5e', '#3a1c00', '#0b3d17', '#ffd23f', '#111111'];
-const BOT_NAMES = ['siraj', 'ram', 'anjali', 'bijay', 'karan', 'parash', 'lama', 'anmol', 'sagar', 'bishal', 'subash', 'Marbles', 'Ziggy', 'Puffin', 'Coco', 'Ranger', 'Milo', 'Cosmo', 'Peanut', 'Dash'];
+const BOT_NAMES = ['siraj', 'anjali', 'bijay', 'karan', 'parash', 'lama', 'anmol', 'sagar', 'bishal', 'subash', 'Marbles', 'Ziggy', 'Puffin', 'Coco', 'Ranger', 'Milo', 'Cosmo', 'Peanut', 'Dash'];
 const BOT_COUNT = 25;
 const BOOST_MULT = 1.35;
 const BOOST_MS = 4000;
@@ -26,6 +33,7 @@ const DASH_COOLDOWN_MS = 8000;
 const DASH_DURATION_MS = 250;
 const DASH_SPEED_MULT = 2.6;
 const DASH_MIN_MASS = 20;
+const DEV_UNLIMITED_DASH_NAME = 'ram'; // yo name le join garda dash cooldown/mass check hudaina
 const INVIS_COOLDOWN_MS = 12000;
 const INVIS_DURATION_MS = 3000;
 const FREEZE_COOLDOWN_MS = 10000;
@@ -118,13 +126,86 @@ function nearbyItems(grid, x, y, cellSize, radiusCells) {
 }
 
 let food = [], coins = [], powerups = [], viruses = [];
+
+// ---- Decorative vine-pattern food layout ----
+// Most food sits along gently-curving "vine" paths (like the trail a dead
+// worm's corpse leaves), a smaller share fills the empty space evenly.
+// Same total food count as before — layout only, zero extra render cost.
+const VINE_COUNT = 22;
+const VINE_POINTS_PER = 26;
+const VINE_STEP = 90;
+let vinePosPool = [];
+function buildVines() {
+    vinePosPool = [];
+    for (let v = 0; v < VINE_COUNT; v++) {
+        let x = rand(300, WORLD.w - 300), y = rand(300, WORLD.h - 300);
+        let ang = rand(0, Math.PI * 2);
+        for (let p = 0; p < VINE_POINTS_PER; p++) {
+            ang += rand(-0.5, 0.5);
+            x = clamp(x + Math.cos(ang) * VINE_STEP, 60, WORLD.w - 60);
+            y = clamp(y + Math.sin(ang) * VINE_STEP, 60, WORLD.h - 60);
+            vinePosPool.push({
+                x: clamp(x + rand(-14, 14), 40, WORLD.w - 40),
+                y: clamp(y + rand(-14, 14), 40, WORLD.h - 40),
+                vine: v
+            });
+        }
+    }
+    for (let i = vinePosPool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [vinePosPool[i], vinePosPool[j]] = [vinePosPool[j], vinePosPool[i]];
+    }
+}
+buildVines();
+
+const FOOD_GRID_DIM = Math.ceil(Math.sqrt(FOOD_COUNT * 0.5));
+const FOOD_CELL_W = WORLD.w / FOOD_GRID_DIM;
+const FOOD_CELL_H = WORLD.h / FOOD_GRID_DIM;
+let foodCellPool = [];
+function refillFoodCellPool() {
+    foodCellPool = [];
+    for (let gx = 0; gx < FOOD_GRID_DIM; gx++) {
+        for (let gy = 0; gy < FOOD_GRID_DIM; gy++) foodCellPool.push([gx, gy]);
+    }
+    for (let i = foodCellPool.length - 1; i > 0; i--) {
+        const j = Math.floor(Math.random() * (i + 1));
+        [foodCellPool[i], foodCellPool[j]] = [foodCellPool[j], foodCellPool[i]];
+    }
+}
+function nextFoodPos() {
+    // ~80% of food follows the vine trails, the rest fills gaps evenly.
+    // Pool auto-refills when empty so clustering never runs out over a long session.
+    if (Math.random() < 0.8) {
+        if (vinePosPool.length === 0) buildVines();
+        return vinePosPool.pop();
+    }
+    if (foodCellPool.length === 0) refillFoodCellPool();
+    const [gx, gy] = foodCellPool.pop();
+    return {
+        x: clamp(gx * FOOD_CELL_W + rand(0.15, 0.85) * FOOD_CELL_W, 40, WORLD.w - 40),
+        y: clamp(gy * FOOD_CELL_H + rand(0.15, 0.85) * FOOD_CELL_H, 40, WORLD.h - 40)
+    };
+}
+
 function spawnFood(n) {
     for (let i = 0; i < n; i++) {
+        const pos = nextFoodPos();
         const isBonus = Math.random() < EMOJI_FOOD_CHANCE;
         if (isBonus) {
-            food.push({ x: rand(40, WORLD.w - 40), y: rand(40, WORLD.h - 40), r: 20, color: PALETTE[Math.floor(Math.random() * PALETTE.length)], bonus: 350 });
+            food.push({
+                x: pos.x, y: pos.y, r: 26,
+                color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
+                emoji: FOOD_EMOJIS[Math.floor(Math.random() * FOOD_EMOJIS.length)],
+                group: pos.vine !== undefined ? pos.vine : null,
+                bonus: 350
+            });
         } else {
-            food.push({ x: rand(40, WORLD.w - 40), y: rand(40, WORLD.h - 40), r: 20, color: PALETTE[Math.floor(Math.random() * PALETTE.length)], bonus: 130 });
+            food.push({
+                x: pos.x, y: pos.y, r: 20,
+                color: PALETTE[Math.floor(Math.random() * PALETTE.length)],
+                group: pos.vine !== undefined ? pos.vine : null,
+                bonus: 130
+            });
         }
     }
 }
@@ -202,7 +283,7 @@ let bossSpawnAt = Date.now() + BOSS_INTERVAL_MS;
 function trySpawnBoss(now) {
     if (boss || now < bossSpawnAt) return;
     boss = { x: rand(400, WORLD.w - 400), y: rand(400, WORLD.h - 400), r: BOSS_R, hp: 3 };
-    io.emit('bossSpawned', {});
+    io.emit('bossSpawned', { x: boss.x, y: boss.y });
 }
 // boss is destroyed by DASHING into it (risk: costs mass on hit if not dashing)
 function checkBossHits(now) {
@@ -245,10 +326,13 @@ let goldenSpawnAt = Date.now() + GOLDEN_INTERVAL_MS;
 
 function tryDash(o) {
     const now = Date.now();
-    if (now < (o.dashReadyAt || 0)) return false;
-    if (massForRadius(o.r) < DASH_MIN_MASS) return false;
+    const isDevTester = o.name === DEV_UNLIMITED_DASH_NAME;
+    if (!isDevTester) {
+        if (now < (o.dashReadyAt || 0)) return false;
+        if (massForRadius(o.r) < DASH_MIN_MASS) return false;
+    }
     o.dashUntil = now + DASH_DURATION_MS;
-    o.dashReadyAt = now + DASH_COOLDOWN_MS;
+    o.dashReadyAt = isDevTester ? 0 : now + DASH_COOLDOWN_MS;
     return true;
 }
 function tryInvis(o) {
@@ -295,14 +379,16 @@ function allBots() {
     for (const id in bots) arr.push(bots[id]);
     return arr;
 }
+const MAX_PATH_NODES = 1200; // absolute safety cap — chahe len jati thulo vaye pani array yeti bhanda badi kahilepani nahune, hang na hos
+
 function advancePath(o, dt, len) {
     const head = o.path[0];
     if (!head || Math.hypot(o.x - head.x, o.y - head.y) > 2) {
         o.path.unshift({ x: o.x, y: o.y });
         let total = 0, cut = o.path.length;
-        for (let i = 1; i < o.path.length; i++) {
+        for (let i = 1; i < o.path.length && i <= MAX_PATH_NODES; i++) {
             total += Math.hypot(o.path[i].x - o.path[i - 1].x, o.path[i].y - o.path[i - 1].y);
-            if (total > len + 40) { cut = i; break; }
+            if (total > len + 40 || i === MAX_PATH_NODES) { cut = i; break; }
         }
         if (cut < o.path.length) o.path.length = cut;
     }
@@ -347,6 +433,23 @@ function wormSegments(o) {
     }
     return segs;
 }
+const BOT_SPAWN_MIN_DIST = 500; // yeso minimum distance bhitra player cha bhane tyaha bot spawn nagarne
+
+function findSafeSpawnPos(margin) {
+    for (let attempt = 0; attempt < 12; attempt++) {
+        const x = rand(margin, WORLD.w - margin);
+        const y = rand(margin, WORLD.h - margin);
+        let safe = true;
+        for (const id in owners) {
+            const o = owners[id];
+            const dx = x - o.x, dy = y - o.y;
+            if (dx * dx + dy * dy < BOT_SPAWN_MIN_DIST * BOT_SPAWN_MIN_DIST) { safe = false; break; }
+        }
+        if (safe) return { x, y };
+    }
+    return { x: rand(margin, WORLD.w - margin), y: rand(margin, WORLD.h - margin) };
+}
+
 let botSpawnIndex = 0;
 function spawnBot() {
     const i = botSpawnIndex++;
@@ -354,7 +457,8 @@ function spawnBot() {
     const name = BOT_NAMES[i % BOT_NAMES.length] + (lap > 1 ? ' ' + lap : '');
     const r = rand(8, 14);
     const botColor = PALETTE[Math.floor(Math.random() * PALETTE.length)];
-    const b = makeEntity(rand(200, WORLD.w - 200), rand(200, WORLD.h - 200), r, botColor, name, true);
+    const pos = findSafeSpawnPos(200);
+    const b = makeEntity(pos.x, pos.y, r, botColor, name, true);
     b.pattern = PATTERNS[Math.floor(Math.random() * PATTERNS.length)];
     b.second = BOT_SECOND_COLORS[Math.floor(Math.random() * BOT_SECOND_COLORS.length)];
     b.path = [{ x: b.x, y: b.y }];
@@ -419,6 +523,16 @@ io.on('connection', socket => {
         delete deadPlayersCache[socket.id];
         socket.emit('continued');
     });
+    socket.on('devSetMass', targetMass => {
+        const o = owners[socket.id];
+        if (!o || o.name !== DEV_UNLIMITED_DASH_NAME) return; // dev-only, ram matra
+        const m = Number(targetMass);
+        if (!isFinite(m) || m <= 0) return;
+        o.targetR = capR(radiusForMass(m));
+        o.r = o.targetR;
+        o.len = massForRadius(o.r) * 3.4; // bots jasari nai natural scale — pahile pathNode cap le hang thegisakyo tesaile aba full-size dinu safe
+        o.path = [{ x: o.x, y: o.y }]; // path reset garne, purano huge path clear garna
+    });
     socket.on('disconnect', () => { delete owners[socket.id]; delete revengeMemory[socket.id]; delete deadPlayersCache[socket.id]; });
 });
 
@@ -426,7 +540,8 @@ function eatFood(entity, foodGrid, isPlayer) {
     let ate = false;
     const nearby = nearbyItems(foodGrid, entity.x, entity.y, GRID_CELL, 1);
     const EAT_REACH = 1.5; // eats food slightly before actual touch, like wormhole
-    const bonusMult = isPlayer ? 1.6 : 1; // players grow a bit faster than bots to stay competitive
+    let bonusMult = isPlayer ? 1.6 : 1; // players grow a bit faster than bots to stay competitive
+    if (entity.name === DEV_UNLIMITED_DASH_NAME) bonusMult *= 5; // dev tester grows 5x for testing
     for (const f of nearby) {
         if (f.eaten) continue;
         const reach = (entity.r + f.r) * EAT_REACH;
@@ -440,10 +555,11 @@ function eatFood(entity, foodGrid, isPlayer) {
 function eatCoins(entity, coinGrid) {
     let count = 0;
     const nearby = nearbyItems(coinGrid, entity.x, entity.y, GRID_CELL, 1);
+    const coinMult = entity.name === DEV_UNLIMITED_DASH_NAME ? 5 : 1;
     for (const c of nearby) {
         if (c.eaten) continue;
         if (dist2(entity, c) < (entity.r + c.r) * (entity.r + c.r)) {
-            entity.targetR = capR(radiusForMass(massForRadius(entity.r) + 90));
+            entity.targetR = capR(radiusForMass(massForRadius(entity.r) + 90 * coinMult));
             c.eaten = true; count++;
         }
     }
@@ -684,7 +800,8 @@ setInterval(() => {
 
             const victimMass = massForRadius(w.ent.r);
             const killMult = victimMass >= 500 ? 3 : 1;
-            const massGain = victimMass * killMult;
+            const devMult = k.name === DEV_UNLIMITED_DASH_NAME ? 5 : 1;
+            const massGain = victimMass * killMult * devMult;
             k.targetR = capR(radiusForMass(massForRadius(k.targetR) + massGain));
             k.len += massGain * 0.9;
 
@@ -749,11 +866,11 @@ setInterval(() => {
         }
     });
 
-    const VIEW_RADIUS = 2200;
-    const VIEW_R2 = VIEW_RADIUS * VIEW_RADIUS;
-    const inView = (obj, px, py) => {
+    const BASE_VIEW_RADIUS = 2200;
+    const viewRadiusFor = r => BASE_VIEW_RADIUS + r * 3; // thulo body hune bitikai door samma dekhne (camera zoom-out sanga match)
+    const inViewR2 = (obj, px, py, r2) => {
         const dx = obj.x - px, dy = obj.y - py;
-        return dx * dx + dy * dy < VIEW_R2;
+        return dx * dx + dy * dy < r2;
     };
 
     const allPlayersData = Object.fromEntries(Object.entries(owners).map(([id, o]) => [id, {
@@ -769,7 +886,7 @@ setInterval(() => {
         boost: b.boostUntil > now, shield: b.shieldUntil > now, magnet: b.magnetUntil > now, star: b.starUntil > now,
         frozen: b.frozenUntil > now, rampage: b.rampageUntil > now, golden: !!b.golden
     }]));
-    const allFoodData = food.map(f => ({ x: f.x, y: f.y, r: f.r, color: f.color, emoji: f.emoji || null, golden: f.golden || false }));
+    const allFoodData = food.map(f => ({ x: f.x, y: f.y, r: f.r, color: f.color, emoji: f.emoji || null, golden: f.golden || false, group: f.group ?? null }));
     const allCoinsData = coins.map(c => ({ x: c.x, y: c.y, r: c.r }));
     const allPowerupsData = powerups.map(pu => ({ x: pu.x, y: pu.y, r: pu.r, type: pu.type }));
     const allVirusesData = viruses.map(v => ({ x: v.x, y: v.y, r: v.r }));
@@ -782,6 +899,9 @@ setInterval(() => {
     for (const id in owners) {
         const me = owners[id];
         const px = me.x, py = me.y;
+        const VR = viewRadiusFor(me.r);
+        const VR2 = VR * VR;
+        const inView = (obj, x, y) => inViewR2(obj, x, y, VR2);
 
         const players = { [id]: allPlayersData[id] };
         for (const oid in allPlayersData) {
@@ -802,7 +922,13 @@ setInterval(() => {
             rampageOrb: rampageOrbData,
             portals: portalData.filter(p => inView(p, px, py)),
             boss: bossData && inView(bossData, px, py) ? bossData : null,
-            leaderboard: leaderboardData
+            leaderboard: leaderboardData,
+            devTopEntities: (id === Object.keys(owners).find(oid => owners[oid].name === DEV_UNLIMITED_DASH_NAME))
+                ? ranked.slice(0, 20).map(w => ({
+                    name: w.ent.name, kind: w.kind, x: Math.round(w.ent.x), y: Math.round(w.ent.y),
+                    mass: Math.round(massForRadius(w.ent.r))
+                }))
+                : null
         });
     }
 }, 1000 / 30);
