@@ -68,8 +68,9 @@ function loadWormImage(key, src) {
     img.onerror = () => { console.error('Failed to load worm image:', src); };
     img.src = src;
 }
-loadWormImage('head', 'assets/worm/head.png');
-loadWormImage('body', 'assets/worm/body-Segment.png');
+loadWormImage('headDragon', 'assets/worm/head-dragon.png');
+loadWormImage('bodyDragon', 'assets/worm/body-dragon.png');
+loadWormImage('tailDragon', 'assets/worm/tail-dragon.png');
 
 // ---- Coin sprite (glossy coin.svg) ----
 const coinImage = new Image();
@@ -108,7 +109,8 @@ const SKINS = [
     { color: '#ff4d1c', second: '#ffdd00', cost: 1200, pattern: 'lava', name: 'Lava' },
     { color: '#5ce1e6', second: '#a25cff', cost: 1500, pattern: 'aurora', name: 'Aurora', premium: true, priceNPR: 149 },
     { color: '#ff5a1f', second: '#ffd23f', cost: 1500, pattern: 'inferno', name: 'Inferno', premium: true, priceNPR: 149 },
-    { color: '#e8f4ff', second: '#8ec5ff', cost: 1800, pattern: 'diamond', name: 'Diamond', premium: true, priceNPR: 199 }
+    { color: '#e8f4ff', second: '#8ec5ff', cost: 1800, pattern: 'diamond', name: 'Diamond', premium: true, priceNPR: 199 },
+    { color: '#ff8a00', second: '#ffd23f', cost: 0, pattern: 'dragonSkin', name: 'Fire Dragon' }
 ];
 // ---- NEW: Hat cosmetics (unlockable like skins, drawn on the head) ----
 const HATS = [
@@ -162,6 +164,7 @@ function skinPreviewCSS(s) {
         case 'inferno': return `linear-gradient(45deg, ${c}, ${sec}, #fff45c)`;
         case 'diamond': return `linear-gradient(135deg, #ffffff, ${sec}, ${c})`;
         case 'customSkin': return `url('assets/worm/head.png') center/70% no-repeat, ${c}`;
+        case 'dragonSkin': return `url('assets/worm/head-dragon.png') center/80% no-repeat, ${c}`;
         default: return c;
     }
 }
@@ -932,6 +935,7 @@ function drawHat(hatId, r) {
 }
 
 // ---- NEW: pet companion — small orbiting creature that visually accompanies the head ----
+const dragonHeadAngleState = new Map(); // key -> smoothed head angle, prevents jitter at low speed
 const petState = new Map(); // key -> { angle }
 function drawPet(o, isMe, key) {
     if (!isMe) return; // only draw pet for the local player to keep it simple + cheap
@@ -1117,8 +1121,12 @@ function drawWormFromSegments(o, isMe, key) {
         ctx.restore();
     }
 
-    const bodyImgReady = o.pattern === 'customSkin' && wormImages.body && wormImages.body.loaded;
-    const segStep = isMobileDevice ? (segs.length > 80 ? 4 : 2) : (segs.length > 150 ? 2 : 1);
+    const bodyImgReady = (o.pattern === 'customSkin' && wormImages.body && wormImages.body.loaded)
+        || (o.pattern === 'dragonSkin' && wormImages.bodyDragon && wormImages.bodyDragon.loaded);
+    const bodyImg = o.pattern === 'dragonSkin' ? wormImages.bodyDragon : wormImages.body;
+    const segStep = isMobileDevice ? (segs.length > 80 ? 4 : 2) : 1;
+    let dragonStampTravelled = 0;
+    let dragonLastStampPos = null;
     for (let i = segs.length - 1; i >= 0; i -= segStep) {
         const tLin = i / Math.max(1, segs.length - 1);
         let r = o.r;
@@ -1138,17 +1146,66 @@ function drawWormFromSegments(o, isMe, key) {
         }
 
         if (bodyImgReady) {
-            const size = r * 2.9;
-            ctx.drawImage(wormImages.body.img, segs[i].x - size / 2, segs[i].y - size / 2, size, size);
+            const size = r * 1.6;
+            if (o.pattern === 'dragonSkin') {
+                if (dragonLastStampPos) {
+                    dragonStampTravelled += Math.hypot(segs[i].x - dragonLastStampPos.x, segs[i].y - dragonLastStampPos.y);
+                }
+                dragonLastStampPos = segs[i];
+                // ---- Yo multiplier le shield haru overlap/gap control garcha:
+                // sano number = close-pack (overlap badhcha, khali dekhindaina), thulo number = taadha (gap/khali dekhincha)
+                const STAMP_SPACING = size * 0.2;
+                if (dragonStampTravelled < STAMP_SPACING && i !== 0 && i !== segs.length - 1) {
+                    continue;
+                }
+                dragonStampTravelled = 0;
+            }
+            const rot = segDir(segs, i);
+            // ---- body-dragon.png ma 3 shield-bump stack bhayeko chha (top-to-bottom).
+            // Tesaile pura image hoina, EUTA MATRA bump crop garera tanne (source rect).
+            const natW = bodyImg.img.naturalWidth || bodyImg.img.width || 1;
+            const natH = bodyImg.img.naturalHeight || bodyImg.img.height || 1;
+            const BUMP_COUNT = 3; // image ma jati wota bump/shield stack cha
+            const srcH = natH / BUMP_COUNT;
+            const srcY = srcH; // maझको bump (0 = top, srcH = middle, srcH*2 = bottom) — best-looking bump choose garna yo number badlinus
+            // ---- Square destination ma stretch nahos (round shield square jasto nadekhos) bhanera,
+            // source crop lai pani SQUARE banaune (width ra height dubai barabar)
+            const srcSize = Math.min(natW, srcH);
+            const srcX = (natW - srcSize) / 2;
+            const srcYAdj = srcY + (srcH - srcSize) / 2;
+            ctx.save();
+            ctx.translate(segs[i].x, segs[i].y);
+            ctx.rotate(rot);
+            ctx.globalAlpha = Math.min(1, (ctx.globalAlpha || 1));
+            ctx.drawImage(bodyImg.img, srcX, srcYAdj, srcSize, srcSize, -size / 2, -size / 2, size, size);
+            ctx.restore();
         } else {
             const shade = i % 2 === 0 ? 4 : -5;
             const segColor = o.golden ? lighten('#ffd700', shade) : cachedSegmentFill(o, i, segs.length, key);
             ctx.beginPath(); ctx.fillStyle = segColor;
-            ctx.arc(segs[i].x, segs[i].y, r * 1.08, 0, Math.PI * 2); ctx.fill();
+            ctx.arc(segs[i].x, segs[i].y, r * 1.3, 0, Math.PI * 2); ctx.fill();
         }
     }
     if (!isMobileDevice) drawSideFins(o, segs);
-    drawTailFin(o, segs);
+
+    const tailImgReady = (o.pattern === 'dragonSkin' && wormImages.tailDragon && wormImages.tailDragon.loaded);
+    if (tailImgReady && segs.length > 0) {
+        const lastIdx = segs.length - 1;
+        const lastSeg = segs[lastIdx];
+        const prevSeg = lastIdx > 0 ? segs[lastIdx - 1] : o;
+
+        // Tail ko rotation angle nikalne
+        const tailRot = Math.atan2(lastSeg.y - prevSeg.y, lastSeg.x - prevSeg.x);
+        const ts = o.r * 2.8; // Tail ko size (sano thulo garna yo number adjust garnus)
+
+        ctx.save();
+        ctx.translate(lastSeg.x, lastSeg.y);
+        ctx.rotate(tailRot);
+        ctx.drawImage(wormImages.tailDragon.img, -ts / 2, -ts / 2, ts, ts);
+        ctx.restore();
+    } else {
+        drawTailFin(o, segs);
+    }
     if (o.pattern === 'diamond' && !isMobileDevice) {
         for (let i = 0; i < segs.length; i += 4) {
             const twinkle = Math.sin(performance.now() / 180 + i * 1.7);
@@ -1197,46 +1254,75 @@ function drawWormFromSegments(o, isMe, key) {
         ctx.beginPath(); ctx.strokeStyle = `hsl(${hue},90%,60%)`; ctx.lineWidth = 4;
         ctx.arc(0, 0, o.r + 12, 0, Math.PI * 2); ctx.stroke();
     }
-    drawPectoralFins(o, segs);
+    if (o.pattern !== 'dragonSkin') drawPectoralFins(o, segs);
     const baseColor = o.golden ? '#ffd700' : o.color;
-    const headImgReady = o.pattern === 'customSkin' && wormImages.head && wormImages.head.loaded;
+    const headImgReady = (o.pattern === 'customSkin' && wormImages.head && wormImages.head.loaded)
+        || (o.pattern === 'dragonSkin' && wormImages.headDragon && wormImages.headDragon.loaded);
+    const headImg = o.pattern === 'dragonSkin' ? wormImages.headDragon : wormImages.head;
+    const s0 = segs[0];
+    let rawDirAng = s0 ? Math.atan2(o.y - s0.y, o.x - s0.x) : 0;
+    if (o.pattern === 'dragonSkin' && segs.length > 3) {
+        // Euta matra najikko segment le jitter/shake dinchha,
+        // tesaile ali agadiko segment herera smooth direction linchau
+        const sAvg = segs[Math.min(3, segs.length - 1)];
+        const targetAng = Math.atan2(o.y - sAvg.y, o.x - sAvg.x);
+        let prevAng = dragonHeadAngleState.get(key);
+        if (prevAng === undefined) prevAng = targetAng;
+        let angDiff = targetAng - prevAng;
+        while (angDiff > Math.PI) angDiff -= Math.PI * 2;
+        while (angDiff < -Math.PI) angDiff += Math.PI * 2;
+        rawDirAng = prevAng + angDiff * 0.15;
+        dragonHeadAngleState.set(key, rawDirAng);
+    }
+    const bobT = performance.now() / 260 + (o.x + o.y) * 0.001;
+    // Dragon head ma breathing-wobble nagarne (shake dekhincha), aru skin ma jasto ko testai
+    const dirAng = o.pattern === 'dragonSkin' ? rawDirAng : rawDirAng + Math.sin(bobT) * 0.035;
     if (headImgReady) {
-        const hs = o.r * 3.5;
+        // ---- Dragon head tuning knobs — adjust these 2 numbers to fit a new asset ----
+        const DRAGON_HEAD_SCALE = 4.4;      // overall head size vs body radius (thulo garna number badhaunus)
+        const DRAGON_HEAD_FORWARD = 0; // 0 = centered, higher = push head further ahead of body
+        const hs = o.pattern === 'dragonSkin' ? o.r * DRAGON_HEAD_SCALE : o.r * 3.5;
+        const natW = headImg.img.naturalWidth || headImg.img.width || 1;
+        const natH = headImg.img.naturalHeight || headImg.img.height || 1;
+        const aspect = natW / natH;
+        let dw = hs, dh = hs;
+        if (aspect >= 1) { dh = hs / aspect; } else { dw = hs * aspect; }
+        const forwardOffset = o.pattern === 'dragonSkin' ? dw * DRAGON_HEAD_FORWARD : 0;
         ctx.save();
-        ctx.drawImage(wormImages.head.img, -hs / 2, -hs / 2, hs, hs);
+        ctx.rotate(dirAng);
+        ctx.drawImage(headImg.img, -dw / 2 + forwardOffset, -dh / 2, dw, dh);
         ctx.restore();
     } else {
-        const grad = ctx.createRadialGradient(-o.r * 0.3, -o.r * 0.3, o.r * 0.1, 0, 0, o.r);
+        const headR = o.r * 1.3;
+        const grad = ctx.createRadialGradient(-headR * 0.3, -headR * 0.3, headR * 0.1, 0, 0, headR);
         grad.addColorStop(0, lighten(baseColor, 30)); grad.addColorStop(1, baseColor);
         ctx.beginPath(); ctx.fillStyle = grad;
-        ctx.arc(0, 0, o.r, 0, Math.PI * 2); ctx.fill();
+        ctx.arc(0, 0, headR, 0, Math.PI * 2); ctx.fill();
     }
-    const s0 = segs[0];
-    const rawDirAng = s0 ? Math.atan2(o.y - s0.y, o.x - s0.x) : 0;
-    const bobT = performance.now() / 260 + (o.x + o.y) * 0.001;
-    const dirAng = rawDirAng + Math.sin(bobT) * 0.035;
-    const eyeOffset = o.r * 0.4, eyeR = clamp(o.r * 0.24, 3, 11);
-    let hash = 0; for (let i = 0; i < o.name.length; i++) hash += o.name.charCodeAt(i);
-    const face = isMe ? 'happy' : ['happy', 'sad', 'cry'][hash % 3];
-    [-1, 1].forEach(side => {
-        const ex = Math.cos(dirAng + side * 0.75) * eyeOffset, ey = Math.sin(dirAng + side * 0.75) * eyeOffset;
-        ctx.beginPath(); ctx.fillStyle = '#fff'; ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.fill();
-        const pupilY = face === 'sad' ? ey + eyeR * 0.25 : ey;
-        ctx.beginPath(); ctx.fillStyle = '#0e2233'; ctx.arc(ex + Math.cos(dirAng) * eyeR * 0.35, pupilY + Math.sin(dirAng) * eyeR * 0.35, eyeR * 0.55, 0, Math.PI * 2); ctx.fill();
-        ctx.beginPath(); ctx.fillStyle = '#fff'; ctx.arc(ex + Math.cos(dirAng) * eyeR * 0.35 - eyeR * 0.15, pupilY - eyeR * 0.15, eyeR * 0.18, 0, Math.PI * 2); ctx.fill();
-        if (face === 'cry') {
-            ctx.beginPath(); ctx.fillStyle = '#6bceff';
-            ctx.moveTo(ex, ey + eyeR * 1.1);
-            ctx.quadraticCurveTo(ex - eyeR * 0.5, ey + eyeR * 2.2, ex, ey + eyeR * 2.8);
-            ctx.quadraticCurveTo(ex + eyeR * 0.5, ey + eyeR * 2.2, ex, ey + eyeR * 1.1);
-            ctx.fill();
-        }
-    });
-    ctx.beginPath(); ctx.strokeStyle = '#0e2233'; ctx.lineWidth = eyeR * 0.3; ctx.lineCap = 'round';
-    const mx = Math.cos(dirAng) * o.r * 0.55, my = Math.sin(dirAng) * o.r * 0.55;
-    if (face === 'happy') ctx.arc(mx, my, eyeR * 0.7, dirAng - 0.5, dirAng + 0.5);
-    else ctx.arc(mx, my, eyeR * 0.7, dirAng + Math.PI - 0.5, dirAng + Math.PI + 0.5);
-    ctx.stroke();
+    if (!headImgReady) {
+        const eyeOffset = o.r * 0.4, eyeR = clamp(o.r * 0.24, 3, 11);
+        let hash = 0; for (let i = 0; i < o.name.length; i++) hash += o.name.charCodeAt(i);
+        const face = isMe ? 'happy' : ['happy', 'sad', 'cry'][hash % 3];
+        [-1, 1].forEach(side => {
+            const ex = Math.cos(dirAng + side * 0.75) * eyeOffset, ey = Math.sin(dirAng + side * 0.75) * eyeOffset;
+            ctx.beginPath(); ctx.fillStyle = '#fff'; ctx.arc(ex, ey, eyeR, 0, Math.PI * 2); ctx.fill();
+            const pupilY = face === 'sad' ? ey + eyeR * 0.25 : ey;
+            ctx.beginPath(); ctx.fillStyle = '#0e2233'; ctx.arc(ex + Math.cos(dirAng) * eyeR * 0.35, pupilY + Math.sin(dirAng) * eyeR * 0.35, eyeR * 0.55, 0, Math.PI * 2); ctx.fill();
+            ctx.beginPath(); ctx.fillStyle = '#fff'; ctx.arc(ex + Math.cos(dirAng) * eyeR * 0.35 - eyeR * 0.15, pupilY - eyeR * 0.15, eyeR * 0.18, 0, Math.PI * 2); ctx.fill();
+            if (face === 'cry') {
+                ctx.beginPath(); ctx.fillStyle = '#6bceff';
+                ctx.moveTo(ex, ey + eyeR * 1.1);
+                ctx.quadraticCurveTo(ex - eyeR * 0.5, ey + eyeR * 2.2, ex, ey + eyeR * 2.8);
+                ctx.quadraticCurveTo(ex + eyeR * 0.5, ey + eyeR * 2.2, ex, ey + eyeR * 1.1);
+                ctx.fill();
+            }
+        });
+        ctx.beginPath(); ctx.strokeStyle = '#0e2233'; ctx.lineWidth = eyeR * 0.3; ctx.lineCap = 'round';
+        const mx = Math.cos(dirAng) * o.r * 0.55, my = Math.sin(dirAng) * o.r * 0.55;
+        if (face === 'happy') ctx.arc(mx, my, eyeR * 0.7, dirAng - 0.5, dirAng + 0.5);
+        else ctx.arc(mx, my, eyeR * 0.7, dirAng + Math.PI - 0.5, dirAng + Math.PI + 0.5);
+        ctx.stroke();
+    }
     if (isMe && o.hat) drawHat(o.hat, o.r);
     ctx.font = `${clamp(o.r * 0.3, 9, 14)}px Segoe UI, sans-serif`;
     ctx.fillStyle = isMe ? 'rgba(255,210,63,0.9)' : (o.golden ? 'rgba(255,215,0,0.9)' : 'rgba(234,246,255,0.6)');
@@ -1542,6 +1628,7 @@ function render() {
     for (const key in trails) { if (!frameActiveIds.has(key)) delete trails[key]; }
     for (const key of segColorCache.keys()) { if (!frameActiveIds.has(key)) segColorCache.delete(key); }
     for (const key of interpState.keys()) { if (!frameActiveIds.has(key)) interpState.delete(key); }
+    for (const key of dragonHeadAngleState.keys()) { if (!frameActiveIds.has(key)) dragonHeadAngleState.delete(key); }
 
     updateAndDrawConfetti(dt);
 

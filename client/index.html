@@ -76,8 +76,15 @@
 
     <script src="/socket.io/socket.io.js"></script>
     <script src="game.js"></script>
-    <script src="https://cdn.jsdelivr.net/npm/eruda"></script>
-    <script>eruda.init();</script>
+    <script>
+        // eruda debug console — ?debug=1 URL ma haleko bela matra load huncha
+        if (new URLSearchParams(location.search).has('debug')) {
+            const s = document.createElement('script');
+            s.src = 'https://cdn.jsdelivr.net/npm/eruda';
+            s.onload = () => window.eruda && window.eruda.init();
+            document.body.appendChild(s);
+        }
+    </script>
 </body>
 
 </html>

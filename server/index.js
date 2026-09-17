@@ -23,7 +23,7 @@ const FOOD_COUNT = 1400;
 const COIN_COUNT = 200;
 const POWERUP_COUNT = 32;
 const PALETTE = ['#ff6fa5', '#ffd23f', '#4be3d0', '#b98bff', '#ff9d5c', '#6fe07a'];
-const PATTERNS = ['solid', 'stripe', 'dots', 'gradient', 'tiger', 'scale', 'rainbow', 'lava'];
+const PATTERNS = ['solid', 'stripe', 'dots', 'gradient', 'tiger', 'scale', 'rainbow', 'lava', 'aurora', 'inferno', 'diamond', 'dragonSkin', 'customSkin'];
 const BOT_SECOND_COLORS = ['#ffffff', '#7a4b00', '#2d0a5e', '#3a1c00', '#0b3d17', '#ffd23f', '#111111'];
 const BOT_NAMES = ['siraj', 'anjali', 'bijay', 'karan', 'parash', 'lama', 'anmol', 'sagar', 'bishal', 'subash', 'Marbles', 'Ziggy', 'Puffin', 'Coco', 'Ranger', 'Milo', 'Cosmo', 'Peanut', 'Dash'];
 const BOT_COUNT = 25;
@@ -56,7 +56,7 @@ const TURN_RATE_MIN = 2.6;
 const FOOD_EMOJIS = ['🍄', '🥕', '🍞', '🍎', '🥦', '🍇', '🍊'];
 const EMOJI_FOOD_CHANCE = 0.16;
 const STAR_MS = 6000;
-const START_LEN = 90;
+const START_LEN = 160;
 const BODY_HIT_PAD = 8;
 const MAX_R = 900;
 const RAGE_STREAK = 3;
@@ -543,7 +543,7 @@ io.on('connection', socket => {
 function eatFood(entity, foodGrid, isPlayer) {
     let ate = false;
     const nearby = nearbyItems(foodGrid, entity.x, entity.y, GRID_CELL, 1);
-    const EAT_REACH = 1.5; // eats food slightly before actual touch, like wormhole
+    const EAT_REACH = entity.pattern === 'dragonSkin' ? 2.6 : 1.5; // dragon's big head visual needs a wider reach to feel right
     let bonusMult = isPlayer ? 1.6 : 1; // players grow a bit faster than bots to stay competitive
     if (entity.name === DEV_UNLIMITED_DASH_NAME) bonusMult *= 5; // dev tester grows 5x for testing
     for (const f of nearby) {
@@ -556,13 +556,16 @@ function eatFood(entity, foodGrid, isPlayer) {
     }
     return ate;
 }
+
 function eatCoins(entity, coinGrid) {
     let count = 0;
     const nearby = nearbyItems(coinGrid, entity.x, entity.y, GRID_CELL, 1);
     const coinMult = entity.name === DEV_UNLIMITED_DASH_NAME ? 5 : 1;
+    const coinReach = entity.pattern === 'dragonSkin' ? 1.8 : 1;
     for (const c of nearby) {
         if (c.eaten) continue;
-        if (dist2(entity, c) < (entity.r + c.r) * (entity.r + c.r)) {
+        const reach = (entity.r + c.r) * coinReach;
+        if (dist2(entity, c) < reach * reach) {
             entity.targetR = capR(radiusForMass(massForRadius(entity.r) + 90 * coinMult));
             c.eaten = true; count++;
         }

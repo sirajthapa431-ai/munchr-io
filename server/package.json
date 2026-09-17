@@ -10,6 +10,8 @@
     },
     "dependencies": {
         "express": "^4.19.2",
-        "socket.io": "^4.7.5"
+        "npm": "^12.0.2",
+        "socket.io": "^4.7.5",
+        "start": "^5.1.0"
     }
 }
